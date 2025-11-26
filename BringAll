@@ -1,0 +1,301 @@
+
+----------------------------------------------------------------------
+-- Draggable Bag-Sort Button (👜)
+----------------------------------------------------------------------
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ScreenGui
+local gui = Instance.new("ScreenGui")
+gui.Name = "BagSortGUI"
+gui.ResetOnSpawn = false
+gui.Parent = PlayerGui
+
+-- Toggle Button
+local bagBtn = Instance.new("TextButton")
+bagBtn.Size = UDim2.new(0, 40, 0, 40)
+bagBtn.Position = UDim2.new(0.5, -20, 0.60, -20)   -- middle-ish
+bagBtn.BackgroundTransparency = 1
+bagBtn.Text = "👜"
+bagBtn.TextScaled = true
+bagBtn.Font = Enum.Font.SourceSansBold
+bagBtn.Parent = gui
+
+----------------------------------------------------------------------
+-- Dragging
+----------------------------------------------------------------------
+
+local dragging = false
+local dragStart, startPos
+
+bagBtn.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = bagBtn.Position
+	end
+end)
+
+bagBtn.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+	end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		bagBtn.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+----------------------------------------------------------------------
+-- Button Click → Run Sorter
+----------------------------------------------------------------------
+
+bagBtn.MouseButton1Click:Connect(function()
+	if typeof(RunBagSorter) == "function" then
+		RunBagSorter()
+	else
+		warn("⚠ RunBagSorter() is not defined.")
+	end
+end)
+
+function RunBagSorter()
+
+-- Robust Item Sorter (RUN ONCE VERSION)
+-- Put this in StarterPlayerScripts
+
+local RS = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local ok, RemoteEventsFolder = pcall(function()
+	return RS:WaitForChild("RemoteEvents", 5)
+end)
+
+if not ok or not RemoteEventsFolder then
+	warn("[Sorter] ReplicatedStorage.RemoteEvents not found. Using direct move only.")
+end
+
+local function getRemote(name)
+	if RemoteEventsFolder then
+		local r = RemoteEventsFolder:FindFirstChild(name)
+		if r then return r end
+	end
+	return nil
+end
+
+local StartDragRemote = getRemote("RequestStartDraggingItem")
+local StopDragRemote  = getRemote("StopDraggingItem")
+
+local function callRemote(remote, ...)
+	if not remote then return nil, "no-remote" end
+
+	if remote:IsA("RemoteFunction") then
+		local ok, res = pcall(remote.InvokeServer, remote, ...)
+		return res, ok and "ok" or ("err: "..tostring(res))
+	elseif remote:IsA("RemoteEvent") then
+		local ok, err = pcall(remote.FireServer, remote, ...)
+		return nil, ok and "ok" or ("err: "..tostring(err))
+	end
+
+	return nil, "unsupported-remote"
+end
+
+-- DESTINATIONS
+local POS_GROUP1 = Vector3.new(0, 20, 0)
+local POS_GROUP2 = Vector3.new(20, 10, -5)
+local POS_GROUP3 = Vector3.new(0, 10, 20)
+
+local Exact1 = {"Coal","Fuel Canister","Oil Barrel","Morsel","Steak","Ribs"}
+local Contains2 = {"bolt","broken","broken","metal","log","gem","sheet","washing","engine","radio","tyre"}
+local Exact3 = {
+    -- Weapons
+    "fire sword",
+    "ice sword",
+    "revolver",
+    "revolver ammo",
+    "rifle",
+    "rifle ammo",
+    "rod",
+    "spear",
+    "strong axe",
+    "sword",
+    "morningstar",
+    "hammer",
+    "chainsaw",
+    "good axe",
+
+    -- Sacks
+    "giant sack",
+    "good sack",
+    "infernal sack",
+
+    -- Pelts
+    "alpha wolf pelt",
+    "bear pelt",
+    "polar bear pelt",
+    "wolf pelt",
+    "mammoth tusk",
+    "bunny foot",
+
+    -- Other items
+    "bandage",
+    "blueprint",
+    "cake",
+    "diamond",
+    "flute",
+    "kunai",
+    "medkit",
+    "shard",
+    "raygun"
+}
+
+
+local function mkLookup(list)
+	local t = {}
+	for _,v in ipairs(list) do
+		t[v:lower()] = true
+	end
+	return t
+end
+
+local Lookup1 = mkLookup(Exact1)
+local Lookup3 = mkLookup(Exact3)
+
+local Items = Workspace:FindFirstChild("Items") or Workspace:WaitForChild("Items")
+
+local function getMainPart(item)
+	if item:IsA("BasePart") then return item end
+
+	if item:IsA("Model") then
+		local p = item.PrimaryPart or item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart")
+		if p and not item.PrimaryPart then
+			pcall(function() item.PrimaryPart = p end)
+		end
+		return p
+	end
+
+	return nil
+end
+
+local function moveModelTo(item, pos)
+	local cf = CFrame.new(pos)
+
+	if item:IsA("Model") and item.PrimaryPart then
+		local ok = pcall(function() item:PivotTo(cf) end)
+		if ok then return true end
+
+		ok = pcall(function() item:SetPrimaryPartCFrame(cf) end)
+		if ok then return true end
+	end
+
+	if item:IsA("BasePart") then
+		local ok = pcall(function() item.CFrame = cf end)
+		if ok then return true end
+	end
+
+	-- fallback: manually move parts
+	local parts = {}
+	for _, d in ipairs(item:GetDescendants()) do
+		if d:IsA("BasePart") then table.insert(parts, d) end
+	end
+	if #parts == 0 then return false end
+
+	local ref = parts[1]
+	local offset = pos - ref.Position
+	for _, p in ipairs(parts) do
+		pcall(function() p.CFrame = p.CFrame + offset end)
+	end
+
+	return true
+end
+
+local function classify()
+	local G1, G2, G3 = {}, {}, {}
+
+	for _, item in ipairs(Items:GetChildren()) do
+		local name = item.Name:lower()
+
+		if Lookup1[name] then
+			table.insert(G1, item)
+		else
+			local matched = false
+			for _, sub in ipairs(Contains2) do
+				if name:find(sub, 1, true) then
+					table.insert(G2, item)
+					matched = true
+					break
+				end
+			end
+
+			if not matched and Lookup3[name] then
+				table.insert(G3, item)
+			end
+		end
+	end
+
+	return G1, G2, G3
+end
+
+local ORIGIN = Vector3.new(0,0,0)
+local MAX_DISTANCE_FROM_ORIGIN = 60   -- only move items farther than this
+
+local function process(list, pos)
+	for _, item in ipairs(list) do
+		local main = getMainPart(item)
+		if not main then continue end
+
+		-- ✅ Distance check from world origin (0,0,0)
+		local dist = (main.Position - ORIGIN).Magnitude
+		if dist <= MAX_DISTANCE_FROM_ORIGIN then
+			-- skip items close to origin
+			continue
+		end
+
+		local dragged = false
+
+        -- drag request
+		if StartDragRemote then
+			for i = 1, 3 do
+				local _, status = callRemote(StartDragRemote, item)
+				if status == "ok" then
+					dragged = true
+					break
+				else
+					task.wait(0.05)
+				end
+			end
+		end
+        
+        -- normal movement
+		moveModelTo(item, pos)
+
+		if dragged and StopDragRemote then
+			callRemote(StopDragRemote, item)
+		end
+	end
+end
+
+
+-- RUN ONE TIME
+local G1, G2, G3 = classify()
+
+process(G1, POS_GROUP1)
+process(G2, POS_GROUP2)
+process(G3, POS_GROUP3)
+
+
+
+print("[Sorter] Run once complete.")
+
+end
