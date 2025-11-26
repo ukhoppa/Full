@@ -1,0 +1,276 @@
+-- // Ultra-Optimized Tree + Ice + Ore Aura (Characters included)
+-- Small Trees = any axe
+-- Big Trees = Strong Axe only
+-- All IceBlocks = any axe
+-- Ores = Meteor + Obsidiron (3 hotspots only)
+-- Only scan within SCAN_RADIUS → minimal lag
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local DamageEvent = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("ToolDamageObject")
+
+local Enabled = true
+local AttackDelay = 0.15
+local MAX_DISTANCE = 100
+local SCAN_RADIUS = 80
+local ActiveTargets = {}
+
+---------------------------------------------------
+-- Axe detection
+---------------------------------------------------
+local function getEquippedAxe()
+	local char = LocalPlayer.Character
+	if not char then return nil end
+	local equippedName = char:GetAttribute("Equipped")
+	if not equippedName then return nil end
+	local inv = LocalPlayer:FindFirstChild("Inventory")
+	if not inv then return nil end
+	local axe = inv:FindFirstChild(equippedName)
+	return axe, equippedName
+end
+
+local function hasStrongAxe()
+	local _, name = getEquippedAxe()
+	return name == "Strong Axe"
+end
+
+---------------------------------------------------
+-- Damage a target
+---------------------------------------------------
+local function damageTarget(target)
+	local axe = getEquippedAxe()
+	if not axe or not target then return end
+	local dmg = axe:GetAttribute("WeaponResourceDamage") or axe:GetAttribute("WeaponDamage") or 10
+
+	pcall(function()
+		DamageEvent:InvokeServer(target, axe, dmg, CFrame.new())
+	end)
+end
+
+---------------------------------------------------
+-- Attack Loop
+---------------------------------------------------
+local function attackTarget(target)
+	if ActiveTargets[target] then return end
+	ActiveTargets[target] = true
+
+	task.spawn(function()
+		while Enabled and target and target.Parent and ActiveTargets[target] do
+			local char = LocalPlayer.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if not hrp then break end
+
+			local pos
+			if target.PrimaryPart then
+				pos = target.PrimaryPart.Position
+			elseif target:IsA("Model") then
+				local part = target:FindFirstChildWhichIsA("BasePart")
+				pos = part and part.Position or Vector3.new()
+			else
+				pos = Vector3.new()
+			end
+
+			local dist = (pos - hrp.Position).Magnitude
+			if dist > MAX_DISTANCE then break end
+
+			damageTarget(target)
+			task.wait(AttackDelay)
+		end
+		ActiveTargets[target] = nil
+	end)
+end
+
+---------------------------------------------------
+-- Recursive scanner
+---------------------------------------------------
+local function scanFolder(folder)
+	if not folder then return end
+	local char = LocalPlayer.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	for _, obj in ipairs(folder:GetChildren()) do
+		local objPos
+		if obj.PrimaryPart then
+			objPos = obj.PrimaryPart.Position
+		elseif obj:IsA("Model") then
+			local part = obj:FindFirstChildWhichIsA("BasePart")
+			objPos = part and part.Position or nil
+		elseif obj:IsA("BasePart") then
+			objPos = obj.Position
+		else
+			objPos = nil
+		end
+
+		-- Skip objects outside radius
+		if objPos and (objPos - hrp.Position).Magnitude > SCAN_RADIUS then
+			continue
+		end
+
+		if obj:IsA("Model") then
+			local attack = false
+			local name = obj.Name:lower()
+
+			-- Small Trees
+			local smallTree = name:find("small tree") or name:find("snowy small tree") or name:find("small webbed tree")
+			-- Big Trees
+			local bigTree = name:find("treebig1") or name:find("treebig2") or name:find("treebig3")
+
+			if smallTree then
+				attack = true
+			elseif bigTree and hasStrongAxe() then
+				attack = true
+			end
+
+			-- IceBlocks
+			local iceBlock = obj:FindFirstChild("IceBlock")
+			if iceBlock then
+				attack = true
+				attackTarget(iceBlock)
+				for _, part in ipairs(iceBlock:GetChildren()) do
+					if part:IsA("BasePart") then attackTarget(part) end
+				end
+			end
+
+			-- Ores
+			local oreFolder = obj:FindFirstChild("OreNodes")
+			if oreFolder then
+				for _, ore in ipairs(oreFolder:GetChildren()) do
+					local oreName = ore.Name:lower()
+					if oreName:find("meteor") or oreName:find("obsid") then
+						local main = ore:FindFirstChild("Main")
+						attack = true
+						attackTarget(ore)
+						if main then attackTarget(main) end
+						for _, part in ipairs(ore:GetChildren()) do
+							if part:IsA("BasePart") then attackTarget(part) end
+						end
+					end
+				end
+			end
+
+			if attack then
+				attackTarget(obj)
+			end
+
+		elseif obj:IsA("Folder") then
+			scanFolder(obj)
+		end
+	end
+end
+
+---------------------------------------------------
+-- Define Ore Hotspots
+---------------------------------------------------
+local oreLocations = {}
+local map = Workspace:FindFirstChild("Map")
+local landmarks = map and map:FindFirstChild("Landmarks")
+if landmarks then
+	local lavaCrater = landmarks:FindFirstChild("Lava_Crater_Generic")
+	local largeCrater = landmarks:FindFirstChild("Large_Crater_Generic")
+	local largeCraterGood = landmarks:FindFirstChild("Large_Crater_Good")
+	if lavaCrater then table.insert(oreLocations, lavaCrater) end
+	if largeCrater then table.insert(oreLocations, largeCrater) end
+	if largeCraterGood then table.insert(oreLocations, largeCraterGood) end
+end
+
+---------------------------------------------------
+-- Main Loop
+---------------------------------------------------
+task.spawn(function()
+	while true do
+		if not Enabled then
+			task.wait(0.6)
+			continue
+		end
+
+		local char = LocalPlayer.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if not hrp then
+			task.wait(0.6)
+			continue
+		end
+
+		local foliage = map and map:FindFirstChild("Foliage")
+		local landmarks = map and map:FindFirstChild("Landmarks") -- include landmarks for trees
+		local items = Workspace:FindFirstChild("Items")
+		local characters = Workspace:FindFirstChild("Characters")
+
+		local success, err = pcall(function()
+			-- Scan trees in both folders
+			if foliage then scanFolder(foliage) end
+			if landmarks then scanFolder(landmarks) end
+
+			-- Scan items and characters
+			if items then scanFolder(items) end
+			if characters then scanFolder(characters) end
+
+			-- Scan ore hotspots
+			for _, location in ipairs(oreLocations) do
+				scanFolder(location)
+			end
+		end)
+		if not success then
+			warn("[Aura Scan Error]:", err)
+		end
+
+		task.wait(0.6)
+	end
+end)
+
+---------------------------------------------------
+-- GUI Toggle (Draggable)
+---------------------------------------------------
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local gui = Instance.new("ScreenGui")
+gui.Name = "TreeIceOreAuraGUI"
+gui.ResetOnSpawn = false
+gui.Parent = PlayerGui
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0,40,0,40)
+toggleBtn.Position = UDim2.new(0.5,-20,0.38,-20)
+toggleBtn.BackgroundTransparency = 1
+toggleBtn.Text = "🪓"
+toggleBtn.TextScaled = true
+toggleBtn.Font = Enum.Font.SourceSansBold
+toggleBtn.Parent = gui
+
+local dragging = false
+local dragStart, startPos
+
+toggleBtn.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = toggleBtn.Position
+	end
+end)
+
+toggleBtn.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+	end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		toggleBtn.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+toggleBtn.MouseButton1Click:Connect(function()
+	Enabled = not Enabled
+	toggleBtn.Text = Enabled and "🪓 On" or "🪓 OFF"
+end)
+
+print("[Tree + Ice + Ore Aura] Running – Ultra Optimized with 80-stud radius.")
