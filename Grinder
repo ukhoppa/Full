@@ -1,0 +1,170 @@
+-- ===============================
+-- Cleanup / Brush Drag-Teleporter
+-- ===============================
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local RS = game:GetService("ReplicatedStorage")
+local RemoteEvents = RS:WaitForChild("RemoteEvents")
+local StartDrag = RemoteEvents:WaitForChild("RequestStartDraggingItem")
+local StopDrag = RemoteEvents:WaitForChild("StopDraggingItem")
+
+local TARGET_POS = Vector3.new(21, 10, -5) -- << MOVE HERE
+local ItemsFolder = workspace:WaitForChild("Items")
+
+-- Items that get moved
+local TARGET_ITEMS = {
+	["Log"] = true,
+	["Bolt"] = true,
+	["Sheet Metal"] = true,
+	["Old Radio"] = true,
+	["Broken Fan"] = true,
+	["Tyre"] = true,
+	["Broken Microwave"] = true,
+	["Old Car Engine"] = true,
+	["Washing Machine"] = true,
+  ["Cultist Gem"] = true,
+  ["Fragment"] = true
+
+	
+	
+}
+
+-- ===============================
+-- GUI BUTTON
+-- ===============================
+local gui = Instance.new("ScreenGui")
+gui.Name = "GrinderCleanupMoverGUI"
+gui.ResetOnSpawn = false
+gui.Parent = PlayerGui
+
+local cleanBtn = Instance.new("TextButton")
+cleanBtn.Size = UDim2.new(0, 40, 0, 40)
+cleanBtn.Position = UDim2.new(0.62, -20, 0.48, -20)
+cleanBtn.BackgroundTransparency = 1
+cleanBtn.Text = "🔩"
+cleanBtn.TextScaled = true
+cleanBtn.Font = Enum.Font.SourceSansBold
+cleanBtn.Parent = gui
+
+-- ===============================
+-- DRAGGING SUPPORT
+-- ===============================
+local dragging = false
+local dragStart, startPos
+local UIS = game:GetService("UserInputService")
+
+cleanBtn.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = cleanBtn.Position
+	end
+end)
+
+cleanBtn.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+	end
+end)
+
+UIS.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		cleanBtn.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+-- ===============================
+-- MOVE FUNCTION
+-- ===============================
+local function dragMoveStop(item, targetPos)
+	if not item or not item:IsDescendantOf(workspace) then return end
+	if not (item:IsA("Model") or item:IsA("BasePart")) then return end
+
+	local part
+	if item:IsA("Model") then
+		part = item.PrimaryPart 
+			or item:FindFirstChildWhichIsA("BasePart") 
+			or item:FindFirstChild("Handle")
+	else
+		part = item
+	end
+	if not part then return end
+
+	if item:IsA("Model") and not item.PrimaryPart then
+		pcall(function() item.PrimaryPart = part end)
+	end
+
+	pcall(function()
+		StartDrag:FireServer(item)
+		task.wait(0.05)
+
+		if item:IsA("Model") then
+			item:SetPrimaryPartCFrame(CFrame.new(targetPos))
+		else
+			part.CFrame = CFrame.new(targetPos)
+		end
+
+		task.wait(0.05)
+		StopDrag:FireServer(item)
+	end)
+end
+
+-- ===============================
+-- LOOP
+-- ===============================
+local Moving = false
+
+local function MoveItemsLoop()
+    local ORIGIN = Vector3.new(0,0,0)
+    local MIN_DISTANCE = 100
+
+    while Moving do
+        for _, item in ipairs(ItemsFolder:GetChildren()) do
+            if item:IsA("Model") and TARGET_ITEMS[item.Name] then
+
+                -- Find a usable part to measure distance
+                local part = item.PrimaryPart 
+                    or item:FindFirstChildWhichIsA("BasePart") 
+                    or item:FindFirstChild("Handle")
+
+                if part then
+                    local dist = (part.Position - ORIGIN).Magnitude
+
+                    -- Skip if closer than 100 studs
+                    if dist <= MIN_DISTANCE then
+                        continue
+                    end
+                else
+                    continue
+                end
+
+                dragMoveStop(item, TARGET_POS)
+                task.wait(0.1)
+            end
+        end
+
+        task.wait(0.5)
+    end
+end
+
+
+-- ===============================
+-- BUTTON CLICK TO TOGGLE
+-- ===============================
+cleanBtn.MouseButton1Click:Connect(function()
+	Moving = not Moving
+	cleanBtn.Text = Moving and "🔩 ON" or "🔩 OFF"
+
+	if Moving then
+		task.spawn(MoveItemsLoop)
+	end
+end)
