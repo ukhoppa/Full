@@ -1,0 +1,123 @@
+-- ===============================
+-- Food Gather Button (Run Once, 20 studs ahead)
+-- ===============================
+
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local root = character:WaitForChild("HumanoidRootPart")
+
+-- Remotes
+local RemotesFolder = RS:WaitForChild("RemoteEvents", 5)
+local StartDrag = RemotesFolder and RemotesFolder:FindFirstChild("RequestStartDraggingItem")
+local StopDrag  = RemotesFolder and RemotesFolder:FindFirstChild("StopDraggingItem")
+
+-- Items folder
+local ItemsFolder = Workspace:WaitForChild("Items")
+
+-- Target item names
+local TARGET = {
+    ["cultist"] = true,
+    ["crossbow cultist"] = true,
+    ["sacrifice totem"] = true,
+    ["wolf corpse"] = true,
+    ["bear corpse"] = true,
+ 
+}
+
+-- Move function
+local function moveItem(item, newPos)
+    if item:IsA("Model") and item.PrimaryPart then
+        pcall(function() item:PivotTo(CFrame.new(newPos)) end)
+    elseif item:IsA("BasePart") then
+        pcall(function() item.CFrame = CFrame.new(newPos) end)
+    end
+end
+
+-- ===============================
+-- GUI
+-- ===============================
+local PlayerGui = player:WaitForChild("PlayerGui")
+local gui = Instance.new("ScreenGui")
+gui.Name = "CultistGatherGUI"
+gui.ResetOnSpawn = false
+gui.Parent = PlayerGui
+
+local btn = Instance.new("TextButton")
+btn.Size = UDim2.new(0, 40, 0, 40)
+btn.Position = UDim2.new(0.65, -20, 0.38, -20)
+btn.BackgroundTransparency = 1
+btn.Text = "🧍‍♂️"  -- Food symbol
+btn.TextScaled = true
+btn.Font = Enum.Font.SourceSansBold
+btn.Parent = gui
+
+-- Dragging
+local dragging = false
+local dragStart, startPos
+local UserInputService = game:GetService("UserInputService")
+
+btn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = btn.Position
+    end
+end)
+
+btn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        btn.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- ===============================
+-- Run Once Function (20 studs ahead)
+-- ===============================
+btn.MouseButton1Click:Connect(function()
+    local forward = root.CFrame.LookVector * 20
+    local targetPos = root.Position + forward + Vector3.new(0, 3, 0) -- slightly above ground
+
+    for _, item in ipairs(ItemsFolder:GetChildren()) do
+        local name = item.Name:lower()
+        if TARGET[name] then
+            print("Moving:", item.Name)
+
+            -- Start drag request
+            local started = false
+            if StartDrag then
+                local ok = pcall(function()
+                    StartDrag:FireServer(item)
+                end)
+                started = ok
+            end
+
+            -- Move to 20 studs in front of player
+            moveItem(item, targetPos)
+
+            -- Stop drag request
+            if started and StopDrag then
+                pcall(function()
+                    StopDrag:FireServer(item)
+                end)
+            end
+        end
+    end
+
+    print("Done moving Cultist items.")
+end)
