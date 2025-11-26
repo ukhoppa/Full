@@ -1,0 +1,3407 @@
+--// Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local CoreGui = game:GetService("CoreGui")
+
+--// Player & Character References
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local humanoid = char:WaitForChild("Humanoid")
+local hrp = char:WaitForChild("HumanoidRootPart")
+local itemsFolder = workspace:FindFirstChild("Items")
+
+--// Fire Data
+local fireDistances = {140, 385, 598, 820, 1142, 1388}
+local fireLevel = 1
+local maxLevel = #fireDistances
+
+--// GUI Setup
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "UniversalToolGui"
+screenGui.Parent = CoreGui
+screenGui.IgnoreGuiInset = true
+screenGui.ResetOnSpawn = false
+
+-- The main GUI frame (set this later once you create it)
+local gui = nil
+
+-- This function will be called each time character is reloaded
+local function onCharacterLoaded(newChar, newHumanoid, newHrp)
+    -- You can reinitialize or reconnect logic here that depends on hrp/humanoid
+    -- e.g. re-hook trap button, ESP loops, teleport logic, etc.
+end
+
+-- Death / Respawn handlers
+local function onDeath()
+    if gui then
+        gui.Visible = false
+    end
+end
+
+local function onRespawn(newChar)
+    -- Rebind references
+    char = newChar
+    humanoid = newChar:WaitForChild("Humanoid")
+    hrp = newChar:WaitForChild("HumanoidRootPart")
+
+    -- Show GUI
+    if gui then
+        gui.Visible = true
+    end
+
+    -- Reconnect death event
+    humanoid.Died:Connect(onDeath)
+
+    -- Call the hook for re-initializing logic
+    local ok, err = pcall(function()
+        onCharacterLoaded(char, humanoid, hrp)
+    end)
+    if not ok then
+        warn("Error in onCharacterLoaded:", err)
+    end
+end
+
+-- Hook respawn
+player.CharacterAdded:Connect(onRespawn)
+
+-- Also connect for the initial character if it already exists
+if player.Character and player.Character:FindFirstChild("Humanoid") then
+    humanoid.Died:Connect(onDeath)
+end
+
+
+--=========================================================
+-- 🧱 GUI: Main Frame + Sidebar Tabs
+--=========================================================
+
+-- Prevent GUI from resetting when player respawns
+screenGui.ResetOnSpawn = false
+
+--// Main Frame (the root GUI window)
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 500, 0, 440)
+mainFrame.Position = UDim2.new(0.5, -250, 0.3, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+--// Status Label (top bar text display)
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -10, 0, 30)
+statusLabel.Position = UDim2.new(0, 5, 0, 5)
+statusLabel.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+statusLabel.TextColor3 = Color3.new(1, 1, 1)
+statusLabel.Font = Enum.Font.SourceSansBold
+statusLabel.TextSize = 18
+statusLabel.Text = "Status: Ready"
+statusLabel.Parent = mainFrame
+
+--// Sidebar (contains all tab buttons)
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 100, 1, -40)
+sidebar.Position = UDim2.new(0, 0, 0, 35)
+sidebar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+sidebar.Parent = mainFrame
+
+--// List of GUI tabs
+local tabs = {"Collection","Player", "Misc", "Teleport", "Chests", "Characters"}
+--local tabs = {"Collection", "Misc", "Teleport", "Chests", "Characters"}
+
+-- Table to store references to each tab's panel
+local panels = {}
+
+--// Function: Creates a new tab button
+local function createTabButton(name, yOffset)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, 0, 0, 50)
+	btn.Position = UDim2.new(0, 0, 0, yOffset)
+	btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	btn.TextColor3 = Color3.new(1, 1, 1)
+	btn.Font = Enum.Font.SourceSansBold
+	btn.TextSize = 16
+	btn.Text = name
+	btn.Parent = sidebar
+	return btn
+end
+
+--// Content Frame (where each tab's panel appears)
+local contentFrame = Instance.new("Frame")
+contentFrame.Size = UDim2.new(1, -100, 1, -40)
+contentFrame.Position = UDim2.new(0, 100, 0, 35)
+contentFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+contentFrame.Parent = mainFrame
+
+--// Create a panel for each tab
+for _, tabName in ipairs(tabs) do
+	local panel = Instance.new("Frame")
+	panel.Size = UDim2.new(1, 0, 1, 0)
+	panel.Position = UDim2.new(0, 0, 0, 0)
+	panel.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	panel.Visible = false
+	panel.Parent = contentFrame
+	panels[tabName] = panel
+end
+
+-- Default visible tab
+panels["Collection"].Visible = true
+
+--// Create and connect each tab button
+for i, tabName in ipairs(tabs) do
+	local btn = createTabButton(tabName, (i - 1) * 50)
+	btn.MouseButton1Click:Connect(function()
+		-- Hide all panels
+		for _, panel in pairs(panels) do
+			panel.Visible = false
+		end
+		-- Show selected panel
+		panels[tabName].Visible = true
+	end)
+end
+
+
+--===============================
+-- COLLECTION TAB (Fixed + Respawn Safe)
+--===============================
+local collectionPanel = panels["Collection"]
+if not collectionPanel then return end
+
+-----------------------------------------------------
+-- SERVICES
+-----------------------------------------------------
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart", 5)
+local itemsFolder = workspace:FindFirstChild("Items") or workspace:FindFirstChild("Loot")
+
+-- ✅ Rebind after respawn
+player.CharacterAdded:Connect(function(newChar)
+    char = newChar
+    hrp = newChar:WaitForChild("HumanoidRootPart", 5)
+    task.delay(0.5, updateList) -- refresh list after respawn
+end)
+
+-----------------------------------------------------
+-- GUI ELEMENTS
+-----------------------------------------------------
+local searchBox = Instance.new("TextBox")
+searchBox.Size = UDim2.new(1, -10, 0, 30)
+searchBox.Position = UDim2.new(0, 5, 0, 5)
+searchBox.PlaceholderText = "Search..."
+searchBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+searchBox.TextColor3 = Color3.new(1, 1, 1)
+searchBox.Font = Enum.Font.SourceSans
+searchBox.TextSize = 16
+searchBox.ClearTextOnFocus = false
+searchBox.Text = ""
+searchBox.Parent = collectionPanel
+
+local refreshButton = Instance.new("TextButton")
+refreshButton.Size = UDim2.new(0, 100, 0, 30)
+refreshButton.Position = UDim2.new(0, 5, 0, 40)
+refreshButton.BackgroundColor3 = Color3.fromRGB(90, 90, 90)
+refreshButton.TextColor3 = Color3.new(1, 1, 1)
+refreshButton.Text = "Refresh List"
+refreshButton.Font = Enum.Font.SourceSansBold
+refreshButton.TextSize = 14
+refreshButton.Parent = collectionPanel
+
+local listFrame = Instance.new("ScrollingFrame")
+listFrame.Size = UDim2.new(1, -10, 0, 250)
+listFrame.Position = UDim2.new(0, 5, 0, 75)
+listFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+listFrame.ScrollBarThickness = 6
+listFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+listFrame.Parent = collectionPanel
+
+local uiListLayout = Instance.new("UIListLayout")
+uiListLayout.Parent = listFrame
+uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local hotkeyButton = Instance.new("TextButton")
+hotkeyButton.Size = UDim2.new(0, 100, 0, 30)
+hotkeyButton.Position = UDim2.new(0, 5, 1, -35)
+hotkeyButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+hotkeyButton.TextColor3 = Color3.new(1, 1, 1)
+hotkeyButton.Text = "Hotkey: Z"
+hotkeyButton.Font = Enum.Font.SourceSansBold
+hotkeyButton.TextSize = 16
+hotkeyButton.Parent = collectionPanel
+
+local tpNearestButton = Instance.new("TextButton")
+tpNearestButton.Size = UDim2.new(0, 140, 0, 30)
+tpNearestButton.Position = UDim2.new(0, 120, 1, -35)
+tpNearestButton.BackgroundColor3 = Color3.fromRGB(100, 80, 80)
+tpNearestButton.TextColor3 = Color3.new(1, 1, 1)
+tpNearestButton.Text = "TP Nearest"
+tpNearestButton.Font = Enum.Font.SourceSansBold
+tpNearestButton.TextSize = 16
+tpNearestButton.Parent = collectionPanel
+
+-----------------------------------------------------
+-- VARIABLES
+-----------------------------------------------------
+local logsHotkey = Enum.KeyCode.Z
+local logsActive = false
+local logsList = {}
+local currentIndex = 1
+local targetItemName = nil
+
+local groups = {
+    ["Food Items"] = {items = {"carrot","morsel","steak"}, color = Color3.fromRGB(50, 200, 50)},
+    Healing = {items = {"bandage","medkit","cake"}, color = Color3.fromRGB(200, 170, 50)},
+    ["Fire Resources"] = {items = {"coal","fuel canister","oil barrel"}, color = Color3.fromRGB(200, 50, 50)},
+    Resources = {items = {"radio","tyre","broken","bolt","chair","log","gem","sheet metal","washing","engine"}, color = Color3.fromRGB(50, 100, 200)},
+    Weapons = {items = {"revolver ammo","rifle ammo","rifle","sword","spear","raygun","revolver"}, color = Color3.fromRGB(130, 60, 220)},
+    Tools = {items = {"rod","hammer","sapling","sack","axe","chainsaw","pelt","foot","tusk","shard"}, color = Color3.fromRGB(90, 40, 180)},
+}
+local hardcodedExcludes = {"chest","coin","berry","flashlight","seed","leather","anvil"}
+
+-----------------------------------------------------
+-- HELPERS
+-----------------------------------------------------
+local function belongsToGroup(name)
+    local lname = name:lower()
+    for groupName, data in pairs(groups) do
+        for _, keyword in ipairs(data.items) do
+            if lname:find(keyword) then
+                return groupName, data.color
+            end
+        end
+    end
+    return "Other", Color3.fromRGB(70,70,70)
+end
+
+-----------------------------------------------------
+-- UI BUILD / REFRESH
+-----------------------------------------------------
+local function updateList()
+    -- ✅ Ensure we have fresh character/HRP each time
+    if not char or not char.Parent then
+        char = player.Character
+        if not char then return end
+    end
+    hrp = char:FindFirstChild("HumanoidRootPart") or hrp
+    if not hrp then return end
+
+    itemsFolder = workspace:FindFirstChild("Items") or workspace:FindFirstChild("Loot")
+    if not itemsFolder then return end
+
+    -- clear list
+    for _, c in pairs(listFrame:GetChildren()) do
+        if not c:IsA("UIListLayout") then c:Destroy() end
+    end
+
+    local playerPos = hrp.Position
+    local itemGroups = {}
+    local filter = (searchBox.Text or ""):lower()
+
+    for _, model in pairs(itemsFolder:GetChildren()) do
+        if model:IsA("Model") then
+            local lname = model.Name:lower()
+            local skip = false
+            for _, ex in ipairs(hardcodedExcludes) do
+                if lname:find(ex) then skip = true break end
+            end
+            if not skip then
+                local part = model:FindFirstChildWhichIsA("BasePart")
+                if part then
+                    itemGroups[model.Name] = itemGroups[model.Name] or {}
+                    table.insert(itemGroups[model.Name], part)
+                end
+            end
+        end
+    end
+
+    local allItems = {}
+    for name, parts in pairs(itemGroups) do
+        if filter == "" or name:lower():find(filter) then
+            local closest = math.huge
+            for _, part in ipairs(parts) do
+                local d = (part.Position - playerPos).Magnitude
+                if d < closest then closest = d end
+            end
+            local groupName, groupColor = belongsToGroup(name)
+            table.insert(allItems, {name=name, count=#parts, dist=closest, group=groupName, color=groupColor})
+        end
+    end
+
+    table.sort(allItems, function(a,b)
+        if a.group == b.group then return a.name < b.name
+        elseif a.group == "Other" then return false
+        elseif b.group == "Other" then return true
+        else return a.group < b.group end
+    end)
+
+    local order = 1
+    local currentGroup
+    for _, item in ipairs(allItems) do
+        if item.group ~= currentGroup then
+            local header = Instance.new("TextLabel")
+            header.Size = UDim2.new(1, -10, 0, 20)
+            header.BackgroundTransparency = 1
+            header.Text = "== " .. item.group .. " =="
+            header.TextColor3 = item.color
+            header.Font = Enum.Font.SourceSansBold
+            header.TextSize = 18
+            header.LayoutOrder = order
+            header.Parent = listFrame
+            order += 1
+            currentGroup = item.group
+        end
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -10, 0, 30)
+        btn.BackgroundColor3 = item.color
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Font = Enum.Font.SourceSans
+        btn.TextSize = 16
+        btn.Text = string.format("%s (x%d) - %.1f studs", item.name, item.count, item.dist)
+        btn.LayoutOrder = order
+        btn.Parent = listFrame
+        order += 1
+
+        btn.MouseButton1Click:Connect(function()
+            targetItemName = item.name
+        end)
+    end
+
+    listFrame.CanvasSize = UDim2.new(0,0,0,uiListLayout.AbsoluteContentSize.Y)
+end
+
+-----------------------------------------------------
+-- COLLECTION LOGIC
+-----------------------------------------------------
+local function gatherLogs()
+    logsList = {}
+    if not itemsFolder or not targetItemName then return end
+    for _, model in pairs(itemsFolder:GetChildren()) do
+        if model:IsA("Model") and model.Name == targetItemName then
+            local part = model:FindFirstChildWhichIsA("BasePart")
+            if part then table.insert(logsList, part) end
+        end
+    end
+    currentIndex = 1
+end
+
+local function interactWithItem()
+    -- Press left mouse down
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+	RunService.Heartbeat:Wait()
+	RunService.Heartbeat:Wait()
+    -- Press F key once while mouse is down
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+    RunService.Heartbeat:Wait()
+	--RunService.Heartbeat:Wait()
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+	RunService.Heartbeat:Wait()
+	--RunService.Heartbeat:Wait()
+    -- Release left mouse button
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+	RunService.Heartbeat:Wait()
+--	RunService.Heartbeat:Wait()
+    -- Press F key once again after releasing mouse
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+    RunService.Heartbeat:Wait()
+	--RunService.Heartbeat:Wait()
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+	RunService.Heartbeat:Wait()
+--	RunService.Heartbeat:Wait()
+end
+
+
+local function tpLogsLoop()
+    gatherLogs()
+    if #logsList == 0 then logsActive = false return end
+    while logsActive and currentIndex <= #logsList do
+        local log = logsList[currentIndex]
+        if log and log.Parent then
+            local cam = workspace.CurrentCamera
+            log.CFrame = CFrame.new(cam.CFrame.Position + cam.CFrame.LookVector * 3)
+            RunService.Heartbeat:Wait()
+            interactWithItem()
+        end
+        currentIndex += 1
+        RunService.Heartbeat:Wait()
+    end
+    logsActive = false
+end
+
+local function toggleLogsTP()
+    logsActive = not logsActive
+    if logsActive then task.spawn(tpLogsLoop) end
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == logsHotkey then toggleLogsTP() end
+end)
+
+-----------------------------------------------------
+-- TP NEAREST
+-----------------------------------------------------
+local function tpToNearestItem()
+    if not targetItemName or not itemsFolder or not hrp then return end
+    local nearest, dist = nil, math.huge
+    for _, model in pairs(itemsFolder:GetChildren()) do
+        if model:IsA("Model") and model.Name == targetItemName then
+            local part = model:FindFirstChildWhichIsA("BasePart")
+            if part then
+                local d = (part.Position - hrp.Position).Magnitude
+                if d < dist then nearest, dist = part, d end
+            end
+        end
+    end
+    if nearest then
+        local offset = nearest.CFrame.LookVector * 4 + Vector3.new(0, 3, 0)
+        hrp.CFrame = CFrame.new(nearest.Position + offset, nearest.Position)
+    end
+end
+
+tpNearestButton.MouseButton1Click:Connect(tpToNearestItem)
+
+-----------------------------------------------------
+-- REFRESH / UPDATE
+-----------------------------------------------------
+refreshButton.MouseButton1Click:Connect(updateList)
+searchBox.Focused:Connect(updateList)
+searchBox:GetPropertyChangedSignal("Text"):Connect(updateList)
+
+-- Optional: refresh when panel becomes visible
+collectionPanel:GetPropertyChangedSignal("Visible"):Connect(function()
+    if collectionPanel.Visible then
+        updateList()
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if collectionPanel.Visible then updateList() end
+    end
+end)
+
+task.delay(0.2, updateList)
+
+
+--===============================
+-- Player Tab (Safe, Restored Smooth Fly, No FlySpeed Input)
+--===============================
+do
+    local playerPanel = panels["Player"]
+    if not playerPanel then return end
+
+    local Players = game:GetService("Players")
+    local UserInputService = game:GetService("UserInputService")
+    local RunService = game:GetService("RunService")
+    local player = Players.LocalPlayer
+
+    -----------------------------------------------------
+    -- Avoid duplicate UI: remove old scroll if present
+    -----------------------------------------------------
+    if playerPanel:FindFirstChild("PlayerScroll") then
+        playerPanel.PlayerScroll:Destroy()
+    end
+
+    -----------------------------------------------------
+    -- Scroll frame for rows (single instance)
+    -----------------------------------------------------
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Name = "PlayerScroll"
+    scroll.Size = UDim2.new(1, -10, 1, -10)
+    scroll.Position = UDim2.new(0, 5, 0, 5)
+    scroll.BackgroundTransparency = 1
+    scroll.ScrollBarThickness = 6
+    scroll.Parent = playerPanel
+
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 6)
+    layout.Parent = scroll
+
+    -----------------------------------------------------
+    -- State + controllers + initial snapshot store
+    -----------------------------------------------------
+    local states = {
+        WalkSpeed = 16,
+        InfiniteJump = false,
+        Fly = false,
+        NoClip = false,
+        Ghost = false
+    }
+
+    local bv, bg -- BodyVelocity / BodyGyro (created only when Fly ON)
+    local humanoid, hrp, char -- current refs
+    local initial = {
+        WalkSpeed = nil,
+        JumpPower = nil,
+        CanCollide = {},   -- map part -> original CanCollide
+        Transparency = {}  -- map instance -> original Transparency (parts + decals)
+    }
+
+    -----------------------------------------------------
+    -- Utilities: safe status label if you have it
+    -----------------------------------------------------
+    local function setStatus(txt)
+        if type(statusLabel) == "userdata" and statusLabel.Parent then
+            statusLabel.Text = txt
+        end
+    end
+
+    -----------------------------------------------------
+    -- Snapshot character state (on spawn)
+    -----------------------------------------------------
+    local function snapshotCharacter(ch)
+        if not ch then return end
+        char = ch
+        humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+        hrp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChildWhichIsA("BasePart")
+
+        if humanoid then
+            initial.WalkSpeed = humanoid.WalkSpeed
+            initial.JumpPower = humanoid.JumpPower
+        end
+
+        -- Reset maps
+        initial.CanCollide = {}
+        initial.Transparency = {}
+
+        for _, obj in ipairs(char:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                initial.CanCollide[obj] = obj.CanCollide
+                initial.Transparency[obj] = obj.Transparency
+            elseif obj:IsA("Decal") then
+                initial.Transparency[obj] = obj.Transparency
+            end
+        end
+
+        -- Re-apply immediate values that should persist
+        if humanoid and states.WalkSpeed then
+            humanoid.WalkSpeed = states.WalkSpeed
+        end
+
+        -- If toggles are active, re-create their runtime controllers for new char
+        if states.Fly then
+            -- create controllers fresh for new hrp
+            if bv then bv:Destroy() bv = nil end
+            if bg then bg:Destroy() bg = nil end
+            if hrp then
+                bv = Instance.new("BodyVelocity")
+                bv.MaxForce = Vector3.new(1e6,1e6,1e6)
+                bv.Velocity = Vector3.zero
+                bv.P = 9000
+                bv.Parent = hrp
+
+                bg = Instance.new("BodyGyro")
+                bg.MaxTorque = Vector3.new(1e6,1e6,1e6)
+                bg.CFrame = hrp.CFrame
+                bg.P = 9000
+                bg.Parent = hrp
+            end
+        end
+
+        if states.NoClip then
+            -- Apply noclip on spawn
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    -- record original if not recorded already
+                    if initial.CanCollide[p] == nil then initial.CanCollide[p] = p.CanCollide end
+                    p.CanCollide = false
+                end
+            end
+        end
+
+        if states.Ghost then
+            -- Apply ghost on spawn
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    if initial.Transparency[p] == nil then initial.Transparency[p] = p.Transparency end
+                    p.Transparency = 0.5
+                elseif p:IsA("Decal") then
+                    if initial.Transparency[p] == nil then initial.Transparency[p] = p.Transparency end
+                    p.Transparency = 0.5
+                end
+            end
+        end
+    end
+
+    -----------------------------------------------------
+    -- Safe apply/revert helpers
+    -----------------------------------------------------
+    local function applyNoclip(active)
+        if not char then return end
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                if active then
+                    if initial.CanCollide[p] == nil then initial.CanCollide[p] = p.CanCollide end
+                    p.CanCollide = false
+                else
+                    -- restore original if known, otherwise default true
+                    if initial.CanCollide[p] ~= nil then
+                        p.CanCollide = initial.CanCollide[p]
+                    else
+                        p.CanCollide = true
+                    end
+                end
+            end
+        end
+    end
+
+    local function applyGhost(active)
+        if not char then return end
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                if active then
+                    if initial.Transparency[p] == nil then initial.Transparency[p] = p.Transparency end
+                    p.Transparency = 0.5
+                else
+                    if initial.Transparency[p] ~= nil then
+                        p.Transparency = initial.Transparency[p]
+                    else
+                        p.Transparency = 0
+                    end
+                end
+            elseif p:IsA("Decal") then
+                if active then
+                    if initial.Transparency[p] == nil then initial.Transparency[p] = p.Transparency end
+                    p.Transparency = 0.5
+                else
+                    if initial.Transparency[p] ~= nil then
+                        p.Transparency = initial.Transparency[p]
+                    else
+                        p.Transparency = 0
+                    end
+                end
+            end
+        end
+    end
+
+    local function enableFly(active)
+        if active then
+            if not hrp then return end
+            if not bv then
+                bv = Instance.new("BodyVelocity")
+                bv.MaxForce = Vector3.new(1e6,1e6,1e6)
+                bv.Velocity = Vector3.zero
+                bv.P = 9000
+                bv.Parent = hrp
+            end
+            if not bg then
+                bg = Instance.new("BodyGyro")
+                bg.MaxTorque = Vector3.new(1e6,1e6,1e6)
+                bg.CFrame = hrp.CFrame
+                bg.P = 9000
+                bg.Parent = hrp
+            end
+        else
+            if bv then bv:Destroy() bv = nil end
+            if bg then bg:Destroy() bg = nil end
+        end
+    end
+
+    -----------------------------------------------------
+    -- Helper: createRow (no FlySpeed input)
+    -----------------------------------------------------
+    local function createRow(title, showInput, defaultValue, callback)
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 32)
+        row.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+        row.Parent = scroll
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.4, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Text = title
+        label.Font = Enum.Font.SourceSansBold
+        label.TextColor3 = Color3.new(1, 1, 1)
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextSize = 16
+        label.Parent = row
+
+        local input
+        if showInput then
+            input = Instance.new("TextBox")
+            input.Size = UDim2.new(0.3, 0, 0.8, 0)
+            input.Position = UDim2.new(0.4, 5, 0.1, 0)
+            input.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+            input.TextColor3 = Color3.new(1, 1, 1)
+            input.Text = tostring(defaultValue)
+            input.Font = Enum.Font.SourceSans
+            input.TextSize = 14
+            input.ClearTextOnFocus = false
+            input.Parent = row
+
+            input.FocusLost:Connect(function(enter)
+                if enter and tonumber(input.Text) then
+                    callback(tonumber(input.Text), nil)
+                end
+            end)
+        end
+
+        local button = Instance.new("TextButton")
+        button.Size = UDim2.new(0.25, 0, 0.8, 0)
+        button.Position = UDim2.new(showInput and 0.72 or 0.4, 5, 0.1, 0)
+        button.BackgroundColor3 = Color3.fromRGB(80, 30, 30)
+        button.Text = "OFF"
+        button.Font = Enum.Font.SourceSansBold
+        button.TextColor3 = Color3.new(1, 1, 1)
+        button.TextSize = 14
+        button.Parent = row
+
+        local active = false
+        button.MouseButton1Click:Connect(function()
+            active = not active
+            button.Text = active and "ON" or "OFF"
+            button.BackgroundColor3 = active and Color3.fromRGB(40, 120, 40) or Color3.fromRGB(80, 30, 30)
+            callback(nil, active)
+        end)
+    end
+
+    -----------------------------------------------------
+    -- Create rows (WalkSpeed, InfiniteJump, FlyMode, NoClip, Ghost)
+    -----------------------------------------------------
+    -- WalkSpeed (editable input)
+
+	createRow("WalkSpeed", true, states.WalkSpeed, function(val, toggle)
+    local hum = humanoid
+
+    -- If the user typed a new value, store it
+    if val then
+        states.WalkSpeed = val
+        if toggle and hum then
+            hum.WalkSpeed = val
+        end
+        setStatus("Status: WalkSpeed set to " .. tostring(val))
+    end
+
+    -- Handle toggle ON/OFF behavior
+    if toggle ~= nil then
+        if toggle then
+            -- Turned ON → apply custom walkspeed
+            if hum then hum.WalkSpeed = states.WalkSpeed end
+            setStatus("Status: WalkSpeed override enabled ("..states.WalkSpeed..")")
+        else
+            -- Turned OFF → stop overriding (let game regain control)
+            setStatus("Status: WalkSpeed override disabled (game control restored)")
+        end
+    end
+end)
+
+
+    -- Infinite Jump
+    createRow("InfiniteJump", false, nil, function(_, toggle)
+        states.InfiniteJump = toggle
+        setStatus("Status: Infinite Jump "..(toggle and "Enabled" or "Disabled"))
+    end)
+
+    -- Fly Mode (no speed input)
+    createRow("FlyMode", false, nil, function(_, toggle)
+        states.Fly = toggle
+        enableFly(toggle)
+        setStatus("Status: Fly "..(toggle and "Enabled" or "Disabled"))
+    end)
+
+    -- NoClip
+    createRow("NoClip", false, nil, function(_, toggle)
+        states.NoClip = toggle
+        applyNoclip(toggle)
+        setStatus("Status: NoClip "..(toggle and "Enabled" or "Disabled"))
+    end)
+
+    -- Ghost
+    createRow("Ghost", false, nil, function(_, toggle)
+        states.Ghost = toggle
+        applyGhost(toggle)
+        setStatus("Status: Ghost "..(toggle and "Enabled" or "Disabled"))
+    end)
+
+    -----------------------------------------------------
+    -- RunService loop: apply continuous behaviour (walkspeed, fly smoothing)
+    -----------------------------------------------------
+    local DEFAULT_FLY_SPEED = 70 -- moderate smooth speed (constant)
+    RunService.Heartbeat:Connect(function()
+        if not player.Character then return end
+        local ch = player.Character
+        local hr = ch:FindFirstChild("HumanoidRootPart")
+        local hum = ch:FindFirstChildOfClass("Humanoid")
+        if not hr or not hum then return end
+
+        -- keep walk speed consistent with states
+     -- Keep WalkSpeed locked only when override is ON
+		if states.WalkSpeedOverride then
+    -- Detect if something (like sprint) changed WalkSpeed
+    if math.abs(hum.WalkSpeed - states.WalkSpeed) > 0.1 then
+        hum.WalkSpeed = states.WalkSpeed
+    end
+	else
+    -- When OFF, let the game fully manage it (don’t touch it)
+    states.WalkSpeed = hum.WalkSpeed  -- update our stored value to current
+	end
+
+
+
+        -- Fly smooth movement
+        if states.Fly then
+            if not bv or not bg then
+                -- ensure controllers are present (in case char was respawned)
+                enableFly(true)
+            end
+            local cam = workspace.CurrentCamera
+            local move = Vector3.zero
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0,1,0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then move -= Vector3.new(0,1,0) end
+
+            if move.Magnitude > 0 then
+                move = move.Unit * DEFAULT_FLY_SPEED
+            else
+                move = Vector3.zero
+            end
+
+            if bv then
+                bv.Velocity = bv.Velocity:Lerp(move, 0.28)
+            end
+            if bg then
+                bg.CFrame = workspace.CurrentCamera.CFrame
+            end
+        end
+
+        -- NoClip: if enabled, keep parts non-collidable (new parts recorded in snapshot will be handled)
+        if states.NoClip then
+            for _, p in ipairs(ch:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    if p.CanCollide then
+                        -- record original if not recorded
+                        if initial.CanCollide[p] == nil then initial.CanCollide[p] = p.CanCollide end
+                        p.CanCollide = false
+                    end
+                end
+            end
+        end
+
+        -- Ghost: ensure any newly added parts respect ghost state
+        if states.Ghost then
+            for _, p in ipairs(ch:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    if p.Transparency ~= 0.5 then
+                        if initial.Transparency[p] == nil then initial.Transparency[p] = p.Transparency end
+                        p.Transparency = 0.5
+                    end
+                elseif p:IsA("Decal") then
+                    if p.Transparency ~= 0.5 then
+                        if initial.Transparency[p] == nil then initial.Transparency[p] = p.Transparency end
+                        p.Transparency = 0.5
+                    end
+                end
+            end
+        end
+    end)
+
+    -----------------------------------------------------
+    -- Infinite Jump connect
+    -----------------------------------------------------
+    UserInputService.JumpRequest:Connect(function()
+        if states.InfiniteJump then
+            local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+        end
+    end)
+
+    -----------------------------------------------------
+    -- CharacterAdded: snapshot + reapply active toggles safely
+    -----------------------------------------------------
+    player.CharacterAdded:Connect(function(newChar)
+        -- small delay to allow char to replicate
+        task.wait(0.2)
+        snapshotCharacter(newChar)
+        setStatus("Status: Character bound")
+    end)
+
+    -- initial bind if already present
+    if player.Character then
+        snapshotCharacter(player.Character)
+    end
+
+    setStatus("Status: Player Tab Loaded (smooth fly restored)")
+end
+
+
+
+-- MISC
+
+
+local miscPanel = panels["Misc"]
+local fireLevelLabel = Instance.new("TextLabel")
+fireLevelLabel.Size = UDim2.new(0, 150, 0, 25)
+fireLevelLabel.Position = UDim2.new(0, 10, 0, 10)
+fireLevelLabel.Text = "Fire level: 1"
+fireLevelLabel.TextColor3 = Color3.new(1, 1, 1)
+fireLevelLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+fireLevelLabel.Font = Enum.Font.SourceSans
+fireLevelLabel.TextSize = 16
+fireLevelLabel.Parent = miscPanel
+local fireLevelSlider = Instance.new("Frame")
+fireLevelSlider.Size = UDim2.new(0, 150, 0, 25)
+fireLevelSlider.Position = UDim2.new(0, 170, 0, 10)
+fireLevelSlider.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+fireLevelSlider.Parent = miscPanel
+local sliderBar = Instance.new("TextButton")
+sliderBar.Size = UDim2.new(0, 20, 1, 0)
+sliderBar.Position = UDim2.new(0, 0, 0, 0)
+sliderBar.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+sliderBar.Text = ""
+sliderBar.Active = true
+sliderBar.Parent = fireLevelSlider
+
+-- Reference
+local miscPanel = panels["Misc"]
+
+-- Toggle for full bright / no fog
+
+
+
+local fullBrightEnabled = false
+
+local fullBrightToggle = Instance.new("TextButton")
+fullBrightToggle.Size = UDim2.new(0, 150, 0, 30)
+fullBrightToggle.Position = UDim2.new(0, 10, 0, 90)
+fullBrightToggle.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+fullBrightToggle.TextColor3 = Color3.new(1, 1, 1)
+fullBrightToggle.Font = Enum.Font.SourceSansBold
+fullBrightToggle.TextSize = 14
+fullBrightToggle.Text = "FullBright: OFF"
+fullBrightToggle.Parent = miscPanel
+
+local fullBrightLoop
+
+fullBrightToggle.MouseButton1Click:Connect(function()
+    fullBrightEnabled = not fullBrightEnabled
+    fullBrightToggle.Text = "FullBright: " .. (fullBrightEnabled and "ON" or "OFF")
+
+    local lighting = game:GetService("Lighting")
+
+    if fullBrightEnabled then
+        -- Start loop
+        fullBrightLoop = RunService.RenderStepped:Connect(function()
+            lighting.ClockTime = 12
+            lighting.Brightness = 5
+            lighting.Ambient = Color3.fromRGB(255,255,255)
+            lighting.OutdoorAmbient = Color3.fromRGB(255,255,255)
+            lighting.FogStart = 999999
+            lighting.FogEnd = 10000
+            lighting.FogColor = Color3.fromRGB(255,255,255)
+            lighting.ShadowSoftness = 0
+            lighting.EnvironmentDiffuseScale = 1
+            lighting.EnvironmentSpecularScale = 0
+        end)
+    else
+        -- Stop loop
+        if fullBrightLoop then
+            fullBrightLoop:Disconnect()
+            fullBrightLoop = nil
+        end
+
+        -- (Optional) Reset to Roblox defaults
+        lighting.ClockTime = 12
+        lighting.Brightness = 1
+        lighting.Ambient = Color3.fromRGB(128,128,128)
+        lighting.OutdoorAmbient = Color3.fromRGB(128,128,128)
+        lighting.FogStart = 0
+        lighting.FogEnd = 1000
+        lighting.FogColor = Color3.fromRGB(192,192,192)
+        lighting.ShadowSoftness = 0.5
+        lighting.EnvironmentDiffuseScale = 1
+        lighting.EnvironmentSpecularScale = 1
+    end
+end)
+
+
+--// Services
+local RunService = game:GetService("RunService")
+--// GUI Elements
+local saplingRadiusInput = Instance.new("TextBox")
+saplingRadiusInput.Size = UDim2.new(0, 80, 0, 25)
+saplingRadiusInput.Position = UDim2.new(0, 10, 0, 50)
+saplingRadiusInput.PlaceholderText = "Radius"
+saplingRadiusInput.BackgroundColor3 = Color3.fromRGB(60,60,60)
+saplingRadiusInput.TextColor3 = Color3.new(1,1,1)
+saplingRadiusInput.Font = Enum.Font.SourceSans
+saplingRadiusInput.TextSize = 16
+saplingRadiusInput.Parent = miscPanel
+
+local saplingCircleButton = Instance.new("TextButton")
+saplingCircleButton.Size = UDim2.new(0,100,0,25)
+saplingCircleButton.Position = UDim2.new(0,100,0,50)
+saplingCircleButton.BackgroundColor3 = Color3.fromRGB(80,80,80)
+saplingCircleButton.TextColor3 = Color3.new(1,1,1)
+saplingCircleButton.Text="Circle Saplings"
+saplingCircleButton.Font=Enum.Font.SourceSansBold
+saplingCircleButton.TextSize=16
+saplingCircleButton.Parent=miscPanel
+
+local saplingSquareButton = Instance.new("TextButton")
+saplingSquareButton.Size = UDim2.new(0,100,0,25)
+saplingSquareButton.Position = UDim2.new(0,210,0,50)
+saplingSquareButton.BackgroundColor3 = Color3.fromRGB(80,80,80)
+saplingSquareButton.TextColor3 = Color3.new(1,1,1)
+saplingSquareButton.Text="Square Saplings"
+saplingSquareButton.Font=Enum.Font.SourceSansBold
+saplingSquareButton.TextSize=16
+saplingSquareButton.Parent=miscPanel
+
+local saplingHexButton = Instance.new("TextButton")
+saplingHexButton.Size = UDim2.new(0,100,0,25)
+saplingHexButton.Position = UDim2.new(0,320,0,50)
+saplingHexButton.BackgroundColor3 = Color3.fromRGB(80,80,80)
+saplingHexButton.TextColor3 = Color3.new(1,1,1)
+saplingHexButton.Text="Rectangle"
+saplingHexButton.Font=Enum.Font.SourceSansBold
+saplingHexButton.TextSize=16
+saplingHexButton.Parent=miscPanel
+
+-- Toggle states
+local saplingHexActive = false
+local saplingHexHandles = {}
+local saplingHexPositions = {}
+
+--// Toggle States
+local saplingCircleActive = false
+local saplingSquareActive = false
+
+local saplingCircleHandles = {}
+local saplingSquareHandles = {}
+local saplingCirclePositions = {}
+local saplingSquarePositions = {}
+local saplingCircleCenter = Vector3.new(0,0,0)
+local saplingSquareCenter = Vector3.new(0,0,0)
+
+-- Heartbeat loop for teleporting
+local RunService = game:GetService("RunService")
+RunService.Heartbeat:Connect(function()
+    if saplingCircleActive then
+        for i, handle in ipairs(saplingCircleHandles) do
+            handle.CFrame = CFrame.new(saplingCircleCenter + (saplingCirclePositions[i].Position - Vector3.new(0, saplingCirclePositions[i].Y, 0)))
+        end
+    end
+    if saplingSquareActive then
+        for i, handle in ipairs(saplingSquareHandles) do
+            handle.CFrame = CFrame.new(saplingSquareCenter + (saplingSquarePositions[i].Position - Vector3.new(0, saplingSquarePositions[i].Y, 0)))
+        end
+    end
+end)
+
+-- Helper: collect saplings
+local function getSaplings()
+    local itemsFolder = workspace:FindFirstChild("Items")
+    local saplings = {}
+    if itemsFolder then
+        for _, model in pairs(itemsFolder:GetChildren()) do
+            if model:IsA("Model") and model.Name:lower():find("sapling") then
+                local handle = model:FindFirstChild("Handle")
+                if handle and handle:IsA("BasePart") then
+                    table.insert(saplings, handle)
+                end
+            end
+        end
+    end
+    return saplings
+end
+
+-- Circle toggle button
+saplingCircleButton.MouseButton1Click:Connect(function()
+    saplingCircleActive = not saplingCircleActive
+    if saplingCircleActive then
+        local radius = tonumber(saplingRadiusInput.Text) or 10
+        local saplings = getSaplings()
+        local count = #saplings
+        if count == 0 then
+            statusLabel.Text = "Status: No saplings found"
+            saplingCircleActive = false
+            return
+        end
+
+        saplingCircleHandles = saplings
+        saplingCirclePositions = {}
+
+        local char = game.Players.LocalPlayer.Character
+        saplingCircleCenter = char and char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.Position or Vector3.new(0,0,0)
+
+        for i, handle in ipairs(saplings) do
+            local angle = (i-1) * (2 * math.pi / count)
+            local x = math.cos(angle) * radius
+            local z = math.sin(angle) * radius
+            table.insert(saplingCirclePositions, CFrame.new(Vector3.new(x, handle.Position.Y, z)))
+        end
+
+        statusLabel.Text = "Status: Circle saplings toggled ON ("..count..")"
+    else
+        statusLabel.Text = "Status: Circle saplings toggled OFF"
+    end
+end)
+
+-- Square toggle button
+saplingSquareButton.MouseButton1Click:Connect(function()
+    saplingSquareActive = not saplingSquareActive
+    if saplingSquareActive then
+        local radius = tonumber(saplingRadiusInput.Text) or 10
+        local saplings = getSaplings()
+        local count = #saplings
+        if count < 4 then
+            statusLabel.Text = "Status: Need at least 4 saplings"
+            saplingSquareActive = false
+            return
+        end
+
+        saplingSquareHandles = saplings
+        saplingSquarePositions = {}
+
+        local char = game.Players.LocalPlayer.Character
+        saplingSquareCenter = char and char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.Position or Vector3.new(0,0,0)
+
+        local placed = 0
+        local corners = {
+            Vector3.new(-radius, 6, -radius),
+            Vector3.new(radius, 6, -radius),
+            Vector3.new(radius, 6, radius),
+            Vector3.new(-radius, 6, radius)
+        }
+
+        -- Place corners
+        for i = 1, 4 do
+            table.insert(saplingSquarePositions, CFrame.new(corners[i]))
+            placed = placed + 1
+        end
+
+        -- Remaining saplings distributed along sides
+        local remaining = count - 4
+        local perSide = math.floor(remaining / 4)
+        local extra = remaining % 4
+
+        for side = 0, 3 do
+            local thisSide = perSide + ((side < extra) and 1 or 0)
+            if thisSide > 0 then
+                local spacing = (radius * 2) / (thisSide + 1)
+                for i = 1, thisSide do
+                    placed = placed + 1
+                    if placed > count then break end
+                    local x, z
+                    if side == 0 then
+                        x = -radius + i * spacing; z = -radius
+                    elseif side == 1 then
+                        x = radius; z = -radius + i * spacing
+                    elseif side == 2 then
+                        x = radius - i * spacing; z = radius
+                    elseif side == 3 then
+                        x = -radius; z = radius - i * spacing
+                    end
+                    table.insert(saplingSquarePositions, CFrame.new(Vector3.new(x, 8, z)))
+                end
+            end
+        end
+
+        statusLabel.Text = "Status: Square saplings toggled ON ("..count..")"
+    else
+        statusLabel.Text = "Status: Square saplings toggled OFF"
+    end
+end)
+
+-- Rectangle (was Hex) toggle button
+
+saplingHexButton.MouseButton1Click:Connect(function()
+    saplingHexActive = not saplingHexActive
+    if saplingHexActive then
+        local size = tonumber(saplingRadiusInput.Text) or 10
+        local width = size          -- shorter side
+        local length = size * 2     -- longer side
+
+        local saplings = getSaplings()
+        local count = #saplings
+        if count < 4 then
+            statusLabel.Text = "Status: Need at least 4 saplings"
+            saplingHexActive = false
+            return
+        end
+
+        saplingHexHandles = saplings
+        saplingHexPositions = {}
+
+        local char = game.Players.LocalPlayer.Character
+        local center
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            center = char.HumanoidRootPart.Position
+        else
+            center = Vector3.new(0,0,0)
+        end
+
+        -- Corners of the rectangle
+        local corners = {
+            Vector3.new(-length/2, 0, -width/2),
+            Vector3.new(length/2, 0, -width/2),
+            Vector3.new(length/2, 0, width/2),
+            Vector3.new(-length/2, 0, width/2),
+        }
+
+        local y = center.Y
+        local placed = 0
+
+        -- Place corners
+        for i = 1, 4 do
+            table.insert(saplingHexPositions, CFrame.new(center + Vector3.new(corners[i].X, y, corners[i].Z)))
+            placed = placed + 1
+            if placed >= count then break end
+        end
+
+        -- Place remaining along edges evenly
+        local remaining = count - 4
+        if remaining > 0 then
+            local edges = {
+                {corners[1], corners[2]}, -- top
+                {corners[2], corners[3]}, -- right
+                {corners[3], corners[4]}, -- bottom
+                {corners[4], corners[1]}  -- left
+            }
+            local perEdge = math.floor(remaining / 4)
+            local extra = remaining % 4
+
+            for i, edge in ipairs(edges) do
+                local thisEdge = perEdge + ((i <= extra) and 1 or 0)
+                for j = 1, thisEdge do
+                    placed = placed + 1
+                    if placed > count then break end
+                    local t = j / (thisEdge + 1)
+                    local x = edge[1].X * (1 - t) + edge[2].X * t
+                    local z = edge[1].Z * (1 - t) + edge[2].Z * t
+                    table.insert(saplingHexPositions, CFrame.new(center + Vector3.new(x, y, z)))
+                end
+            end
+        end
+
+        statusLabel.Text = "Status: Rectangle saplings toggled ON ("..count..")"
+    else
+        statusLabel.Text = "Status: Rectangle saplings toggled OFF"
+    end
+end)
+
+
+-- Heartbeat loop update for rectangle
+RunService.Heartbeat:Connect(function()
+    if saplingHexActive then
+        for i, handle in ipairs(saplingHexHandles) do
+            if saplingHexPositions[i] then
+                handle.CFrame = saplingHexPositions[i]
+            end
+        end
+    end
+end)
+
+
+local function updateSlider(posX)
+    local width = fireLevelSlider.AbsoluteSize.X
+    local ratio = math.clamp(posX / width, 0, 1)
+    fireLevel = math.clamp(math.floor(ratio * maxLevel + 0.5), 1, maxLevel)
+    sliderBar.Position = UDim2.new((fireLevel - 1) / (maxLevel - 1), 0, 0, 0)
+    fireLevelLabel.Text = "Fire level: " .. fireLevel .. " (" .. fireDistances[fireLevel] .. " studs)"
+end
+sliderBar.MouseButton1Down:Connect(
+    function()
+        local dragging = true
+        local moveConn
+        moveConn =
+            UserInputService.InputChanged:Connect(
+            function(input)
+                if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                    local relativeX = input.Position.X - fireLevelSlider.AbsolutePosition.X
+                    updateSlider(relativeX)
+                end
+            end
+        )
+        local releaseConn
+        releaseConn =
+            UserInputService.InputEnded:Connect(
+            function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    dragging = false
+                    moveConn:Disconnect()
+                    releaseConn:Disconnect()
+                end
+            end
+        )
+    end
+)
+
+
+-- ESP Button
+local miscPanel = panels["Misc"]
+local espEnabled = false
+
+local espToggle = Instance.new("TextButton")
+espToggle.Size = UDim2.new(0, 100, 0, 30)
+espToggle.Position = UDim2.new(0, 10, 0, 150)
+espToggle.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+espToggle.TextColor3 = Color3.new(1, 1, 1)
+espToggle.Font = Enum.Font.SourceSansBold
+espToggle.TextSize = 14
+espToggle.Text = "Player ESP: OFF"
+espToggle.Parent = miscPanel
+
+espToggle.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    espToggle.Text = "Player ESP: " .. (espEnabled and "ON" or "OFF")
+end)
+
+-- Hardcoded friends list
+local friendsList = {
+    ["Friend1"] = true,
+    ["Friend2"] = true,
+    ["Friend3"] = true
+}
+
+-- Storage for highlights and labels
+local highlights = {}
+local nameLabels = {}
+
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        local localHRP = hrp
+        for _, plr in pairs(Players:GetPlayers()) do
+            if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local plrHRP = plr.Character:FindFirstChild("HumanoidRootPart")
+                local humanoid = plr.Character:FindFirstChildOfClass("Humanoid")
+                local distance = (plrHRP.Position - localHRP.Position).Magnitude
+
+                if espEnabled then
+                    -- Handle Highlight
+                    if not highlights[plr] then
+                        local highlight = Instance.new("Highlight")
+                        highlight.Adornee = plr.Character
+                        highlight.FillTransparency = 0.8
+                        highlight.OutlineTransparency = 0
+                        highlight.Parent = workspace
+                        highlights[plr] = highlight
+                    end
+
+                    -- Set highlight color
+                    if humanoid and humanoid.Health <= 0 then
+                        highlights[plr].FillColor = Color3.fromRGB(255, 0, 0)
+                        highlights[plr].OutlineColor = Color3.fromRGB(255, 50, 50)
+                    elseif friendsList[plr.Name] then
+                        highlights[plr].FillColor = Color3.fromRGB(100, 255, 100)
+                        highlights[plr].OutlineColor = Color3.fromRGB(50, 255, 50)
+                    else
+                        highlights[plr].FillColor = Color3.fromRGB(0, 100, 0)
+                        highlights[plr].OutlineColor = Color3.fromRGB(0, 255, 0)
+                    end
+
+                    -- Handle NameLabel
+                    if not nameLabels[plr] then
+                        local billboard = Instance.new("BillboardGui")
+                        billboard.Adornee = plrHRP
+                        billboard.Size = UDim2.new(0, 100, 0, 25)
+                        billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+                        billboard.AlwaysOnTop = true
+
+                        local textLabel = Instance.new("TextLabel")
+                        textLabel.Size = UDim2.new(1, 0, 1, 0)
+                        textLabel.BackgroundTransparency = 1
+                        textLabel.TextColor3 = Color3.new(1, 1, 1)
+                        textLabel.Font = Enum.Font.SourceSansBold
+                        textLabel.TextStrokeTransparency = 0
+                        textLabel.TextScaled = true
+                        textLabel.Parent = billboard
+
+                        billboard.Parent = workspace
+                        nameLabels[plr] = textLabel
+                    end
+
+                    -- Update name and distance
+                    local displayText = plr.Name
+                    if humanoid and humanoid.Health > 0 then
+                        displayText = displayText .. string.format(" [%.1f]", distance)
+                    else
+                        displayText = displayText .. " [DEAD]"
+                    end
+
+                    if nameLabels[plr] and nameLabels[plr].Parent then
+                        nameLabels[plr].Text = displayText
+                        if humanoid and humanoid.Health <= 0 then
+                            nameLabels[plr].TextColor3 = Color3.fromRGB(255, 0, 0)
+                        elseif friendsList[plr.Name] then
+                            nameLabels[plr].TextColor3 = Color3.fromRGB(100, 255, 100)
+                        else
+                            nameLabels[plr].TextColor3 = Color3.fromRGB(0, 255, 0)
+                        end
+                    end
+                else
+                    -- ESP off, remove highlights
+                    if highlights[plr] then
+                        highlights[plr]:Destroy()
+                        highlights[plr] = nil
+                    end
+                    if nameLabels[plr] and nameLabels[plr].Parent then
+                        nameLabels[plr].Parent:Destroy()
+                        nameLabels[plr] = nil
+                    end
+                end
+            end
+        end
+    end)
+end)
+
+-- Kid ESP Button
+local kidEspEnabled = false
+
+local kidEspToggle = Instance.new("TextButton")
+kidEspToggle.Size = UDim2.new(0, 100, 0, 30)
+kidEspToggle.Position = UDim2.new(0, 10, 0, 190)
+kidEspToggle.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+kidEspToggle.TextColor3 = Color3.new(1, 1, 1)
+kidEspToggle.Font = Enum.Font.SourceSansBold
+kidEspToggle.TextSize = 14
+kidEspToggle.Text = "Kid ESP: OFF"
+kidEspToggle.Parent = miscPanel
+
+kidEspToggle.MouseButton1Click:Connect(function()
+    kidEspEnabled = not kidEspEnabled
+    kidEspToggle.Text = "Kid ESP: " .. (kidEspEnabled and "ON" or "OFF")
+end)
+
+local kidHighlights = {}
+local kidNameLabels = {}
+
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        local localHRP = hrp
+        if kidEspEnabled and workspace:FindFirstChild("Characters") then
+            for _, model in pairs(workspace.Characters:GetChildren()) do
+                if model:IsA("Model") and model:FindFirstChild("HumanoidRootPart") then
+                    local hrpPart = model.HumanoidRootPart
+                    local distanceFromOrigin = (hrpPart.Position - Vector3.new(0,0,0)).Magnitude
+
+                    if model.Name:lower():find("lost") and distanceFromOrigin > 70 then
+                        local distance = (hrpPart.Position - localHRP.Position).Magnitude
+
+                        if not kidHighlights[model] then
+                            local highlight = Instance.new("Highlight")
+                            highlight.Adornee = model
+                            highlight.FillTransparency = 0.8
+                            highlight.OutlineTransparency = 0
+                            highlight.Parent = workspace
+                            kidHighlights[model] = highlight
+                        end
+
+                        kidHighlights[model].FillColor = Color3.fromRGB(200, 100, 255)
+                        kidHighlights[model].OutlineColor = Color3.fromRGB(255, 150, 255)
+
+                        if not kidNameLabels[model] then
+                            local billboard = Instance.new("BillboardGui")
+                            billboard.Adornee = hrpPart
+                            billboard.Size = UDim2.new(0, 100, 0, 25)
+                            billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+                            billboard.AlwaysOnTop = true
+
+                            local textLabel = Instance.new("TextLabel")
+                            textLabel.Size = UDim2.new(1, 0, 1, 0)
+                            textLabel.BackgroundTransparency = 1
+                            textLabel.TextColor3 = Color3.fromRGB(255, 150, 255)
+                            textLabel.Font = Enum.Font.SourceSansBold
+                            textLabel.TextStrokeTransparency = 0
+                            textLabel.TextScaled = true
+                            textLabel.Parent = billboard
+
+                            billboard.Parent = workspace
+                            kidNameLabels[model] = textLabel
+                        end
+
+                        if kidNameLabels[model] and kidNameLabels[model].Parent then
+                            kidNameLabels[model].Text = string.format("%s [%.1f]", model.Name, distance)
+                        end
+                    else
+                        if kidHighlights[model] then
+                            kidHighlights[model]:Destroy()
+                            kidHighlights[model] = nil
+                        end
+                        if kidNameLabels[model] and kidNameLabels[model].Parent then
+                            kidNameLabels[model].Parent:Destroy()
+                            kidNameLabels[model] = nil
+                        end
+                    end
+                end
+            end
+        else
+            for model, hl in pairs(kidHighlights) do
+                if hl then hl:Destroy() end
+            end
+            for model, lbl in pairs(kidNameLabels) do
+                if lbl and lbl.Parent then lbl.Parent:Destroy() end
+            end
+            kidHighlights = {}
+            kidNameLabels = {}
+        end
+    end)
+end)
+
+-- Rare Animal ESP Button
+local rareAnimalESPEnabled = false
+
+local rareAnimalToggle = Instance.new("TextButton")
+rareAnimalToggle.Size = UDim2.new(0, 100, 0, 30)
+rareAnimalToggle.Position = UDim2.new(0, 10, 0, 230)
+rareAnimalToggle.BackgroundColor3 = Color3.fromRGB(70,70,70)
+rareAnimalToggle.TextColor3 = Color3.new(1,1,1)
+rareAnimalToggle.Font = Enum.Font.SourceSansBold
+rareAnimalToggle.TextSize = 14
+rareAnimalToggle.Text = "Rare ESP: OFF"
+rareAnimalToggle.Parent = miscPanel
+
+rareAnimalToggle.MouseButton1Click:Connect(function()
+    rareAnimalESPEnabled = not rareAnimalESPEnabled
+    rareAnimalToggle.Text = "Rare ESP: " .. (rareAnimalESPEnabled and "ON" or "OFF")
+end)
+
+local rareHighlights = {}
+local rareNameLabels = {}
+local rareAnimals = {["deer"]=true, ["ram"]=true, ["owl"]=true}
+local espColor = Color3.fromRGB(255, 0, 0)
+
+spawn(function()
+    while true do
+        task.wait(2)
+        pcall(function()
+            if rareAnimalESPEnabled and workspace:FindFirstChild("Characters") then
+                local localHRP = hrp
+                for _,model in pairs(workspace.Characters:GetChildren()) do
+                    if model:IsA("Model") and model:FindFirstChild("HumanoidRootPart") then
+                        local lname = model.Name:lower()
+                        if rareAnimals[lname] then
+                            if not rareHighlights[model] then
+                                local highlight = Instance.new("Highlight")
+                                highlight.Adornee = model
+                                highlight.FillColor = espColor
+                                highlight.FillTransparency = 0.8
+                                highlight.OutlineColor = espColor
+                                highlight.OutlineTransparency = 0
+                                highlight.Parent = workspace
+                                rareHighlights[model] = highlight
+                            end
+                            if not rareNameLabels[model] then
+                                local billboard = Instance.new("BillboardGui")
+                                billboard.Adornee = model.HumanoidRootPart
+                                billboard.Size = UDim2.new(0,100,0,25)
+                                billboard.StudsOffset = Vector3.new(0,2.5,0)
+                                billboard.AlwaysOnTop = true
+
+                                local textLabel = Instance.new("TextLabel")
+                                textLabel.Size = UDim2.new(1,0,1,0)
+                                textLabel.BackgroundTransparency = 1
+                                textLabel.TextColor3 = espColor
+                                textLabel.Font = Enum.Font.SourceSansBold
+                                textLabel.TextStrokeTransparency = 0
+                                textLabel.TextScaled = true
+                                textLabel.Parent = billboard
+
+                                billboard.Parent = workspace
+                                rareNameLabels[model] = textLabel
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        if not rareAnimalESPEnabled then
+            for m,h in pairs(rareHighlights) do h:Destroy() end
+            for m,l in pairs(rareNameLabels) do if l.Parent then l.Parent:Destroy() end end
+            rareHighlights, rareNameLabels = {}, {}
+            return
+        end
+
+        local localHRP = hrp
+        for model,label in pairs(rareNameLabels) do
+            if model and model:FindFirstChild("HumanoidRootPart") and label and label.Parent then
+                local distance = (model.HumanoidRootPart.Position - localHRP.Position).Magnitude
+                label.Text = string.format("%s [%.1f]", model.Name, distance)
+            else
+                if rareHighlights[model] then rareHighlights[model]:Destroy() end
+                if label and label.Parent then label.Parent:Destroy() end
+                rareHighlights[model] = nil
+                rareNameLabels[model] = nil
+            end
+        end
+    end)
+end)
+
+-- Landmark ESP Button
+local landmarkEspEnabled = false
+
+local landmarkEspToggle = Instance.new("TextButton")
+landmarkEspToggle.Size = UDim2.new(0, 100, 0, 30)
+landmarkEspToggle.Position = UDim2.new(0, 10, 0, 270)
+landmarkEspToggle.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+landmarkEspToggle.TextColor3 = Color3.new(1, 1, 1)
+landmarkEspToggle.Font = Enum.Font.SourceSansBold
+landmarkEspToggle.TextSize = 14
+landmarkEspToggle.Text = "Landmark ESP: OFF"
+landmarkEspToggle.Parent = miscPanel
+
+landmarkEspToggle.MouseButton1Click:Connect(function()
+    landmarkEspEnabled = not landmarkEspEnabled
+    landmarkEspToggle.Text = "Landmark ESP: " .. (landmarkEspEnabled and "ON" or "OFF")
+end)
+
+local landmarkLabels = {}
+
+local landmarkTargets = {
+    {path={"Ice Temple","Main"}, label="ICE TEMPLE"},
+    {path={"Volcano","Main"}, label="VOLCANO"},
+    {path={"Stronghold","Building","Floor"}, label="STRONGHOLD"},
+    {path={"ToolWorkshop","Main"}, label="ANVIL"},
+}
+
+local function getByPath(root, path)
+    local current = root
+    for _, part in ipairs(path) do
+        if current and current:FindFirstChild(part) then
+            current = current[part]
+        else
+            return nil
+        end
+    end
+    return current
+end
+
+spawn(function()
+    while true do
+        task.wait(2)
+        pcall(function()
+            if landmarkEspEnabled and workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Landmarks") then
+                for _, landmark in ipairs(landmarkTargets) do
+                    local obj = getByPath(workspace.Map.Landmarks, landmark.path)
+                    if obj then
+                        local anchorPart = nil
+
+                        if obj:IsA("BasePart") then
+                            anchorPart = obj
+                        elseif obj:IsA("Model") then
+                            local cf, _ = obj:GetBoundingBox()
+                            local dummy = Instance.new("Part")
+                            dummy.Size = Vector3.new(1,1,1)
+                            dummy.Transparency = 1
+                            dummy.Anchored = true
+                            dummy.CanCollide = false
+                            dummy.CFrame = cf + Vector3.new(0,40,0)
+                            dummy.Parent = workspace
+                            anchorPart = dummy
+                        end
+
+                        if anchorPart and not landmarkLabels[obj] then
+                            local billboard = Instance.new("BillboardGui")
+                            billboard.Adornee = anchorPart
+                            billboard.Size = UDim2.new(0, 200, 0, 50)
+                            billboard.StudsOffset = Vector3.new(0, 40, 0)
+                            billboard.AlwaysOnTop = true
+
+                            local textLabel = Instance.new("TextLabel")
+                            textLabel.Size = UDim2.new(1, 0, 1, 0)
+                            textLabel.BackgroundTransparency = 1
+                            textLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+                            textLabel.Font = Enum.Font.SourceSansBold
+                            textLabel.TextStrokeTransparency = 0
+                            textLabel.TextScaled = true
+                            textLabel.Parent = billboard
+
+                            billboard.Parent = workspace
+                            landmarkLabels[obj] = {gui=billboard, label=textLabel, name=landmark.label, anchor=anchorPart}
+                        end
+                    end
+                end
+            else
+                for obj, data in pairs(landmarkLabels) do
+                    if data.gui then data.gui:Destroy() end
+                    if data.anchor and data.anchor.Parent == workspace then
+                        data.anchor:Destroy()
+                    end
+                end
+                landmarkLabels = {}
+            end
+        end)
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        if landmarkEspEnabled then
+            local localHRP = hrp
+            for obj, data in pairs(landmarkLabels) do
+                if obj and data.anchor and data.anchor:IsA("BasePart") and data.label and data.label.Parent then
+                    local dist = (data.anchor.Position - localHRP.Position).Magnitude
+                    data.label.Text = string.format("%s [%.1f]", data.name, dist)
+                else
+                    if data.gui then data.gui:Destroy() end
+                    if data.anchor and data.anchor.Parent == workspace then
+                        data.anchor:Destroy()
+                    end
+                    landmarkLabels[obj] = nil
+                end
+            end
+        end
+    end)
+end)
+-- 🩹 Medical ESP Button (next to Landmark ESP)
+local medicalEspEnabled = false
+
+local medicalEspToggle = Instance.new("TextButton")
+medicalEspToggle.Size = UDim2.new(0, 100, 0, 30)
+medicalEspToggle.Position = UDim2.new(0, 120, 0, 270) -- right of Landmark ESP
+medicalEspToggle.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+medicalEspToggle.TextColor3 = Color3.new(1, 1, 1)
+medicalEspToggle.Font = Enum.Font.SourceSansBold
+medicalEspToggle.TextSize = 14
+medicalEspToggle.Text = "Medical ESP: OFF"
+medicalEspToggle.Parent = miscPanel
+
+medicalEspToggle.MouseButton1Click:Connect(function()
+    medicalEspEnabled = not medicalEspEnabled
+    medicalEspToggle.Text = "Medical ESP: " .. (medicalEspEnabled and "ON" or "OFF")
+end)
+
+-- Storage tables
+local medHighlights = {}
+local medLabels = {}
+local medItems = {["bandage"] = true, ["medkit"] = true}
+
+-- Periodic scanning + cleanup
+task.spawn(function()
+    while true do
+        task.wait(1)
+        pcall(function()
+            if not workspace:FindFirstChild("Items") then return end
+
+            -- Remove highlights for items that no longer exist
+            for obj, hl in pairs(medHighlights) do
+                if not obj.Parent or obj.Parent ~= workspace.Items then
+                    if hl then hl:Destroy() end
+                    if medLabels[obj] and medLabels[obj].Parent then
+                        medLabels[obj].Parent:Destroy()
+                    end
+                    medHighlights[obj] = nil
+                    medLabels[obj] = nil
+                end
+            end
+
+            if not medicalEspEnabled then
+                -- If turned off, clean everything
+                for _, hl in pairs(medHighlights) do hl:Destroy() end
+                for _, lbl in pairs(medLabels) do if lbl.Parent then lbl.Parent:Destroy() end end
+                medHighlights, medLabels = {}, {}
+                return
+            end
+
+            -- Add highlights for current items
+            for _, obj in pairs(workspace.Items:GetChildren()) do
+                local lname = obj.Name:lower()
+                if medItems[lname] then
+                    local part = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart")
+                    if part then
+                        -- Create highlight
+                        if not medHighlights[obj] then
+                            local hl = Instance.new("Highlight")
+                            hl.Adornee = obj
+                            if lname == "bandage" then
+                                hl.FillColor = Color3.fromRGB(255, 200, 100)
+                                hl.OutlineColor = Color3.fromRGB(255, 170, 70)
+                            else
+                                hl.FillColor = Color3.fromRGB(255, 100, 100)
+                                hl.OutlineColor = Color3.fromRGB(255, 60, 60)
+                            end
+                            hl.FillTransparency = 0.7
+                            hl.OutlineTransparency = 0
+                            hl.Parent = workspace
+                            medHighlights[obj] = hl
+                        end
+
+                        -- Create billboard
+                        if not medLabels[obj] then
+                            local billboard = Instance.new("BillboardGui")
+                            billboard.Adornee = part
+                            billboard.Size = UDim2.new(0, 100, 0, 25)
+                            billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+                            billboard.AlwaysOnTop = true
+
+                            local textLabel = Instance.new("TextLabel")
+                            textLabel.Size = UDim2.new(1, 0, 1, 0)
+                            textLabel.BackgroundTransparency = 1
+                            textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                            textLabel.Font = Enum.Font.SourceSansBold
+                            textLabel.TextStrokeTransparency = 0
+                            textLabel.TextScaled = true
+                            textLabel.Text = lname:upper()
+                            textLabel.Parent = billboard
+
+                            billboard.Parent = workspace
+                            medLabels[obj] = textLabel
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+-- Update distance text
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        if not medicalEspEnabled then return end
+        local localHRP = hrp
+        for obj, lbl in pairs(medLabels) do
+            if obj and obj.Parent == workspace.Items and lbl and lbl.Parent and obj:FindFirstChildWhichIsA("BasePart") then
+                local part = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart")
+                local dist = (part.Position - localHRP.Position).Magnitude
+                lbl.Text = string.format("%s [%.1f]", obj.Name:upper(), dist)
+            else
+                if medHighlights[obj] then medHighlights[obj]:Destroy() end
+                if lbl and lbl.Parent then lbl.Parent:Destroy() end
+                medHighlights[obj] = nil
+                medLabels[obj] = nil
+            end
+        end
+    end)
+end)
+
+
+local distanceLabel = Instance.new("TextButton")
+distanceLabel.Size = UDim2.new(0, 100, 0, 30)
+distanceLabel.Position = UDim2.new(0, 10, 0, 310) -- to the right of other ESPs
+distanceLabel.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+distanceLabel.TextColor3 = Color3.new(1, 1, 1)
+distanceLabel.Font = Enum.Font.SourceSansBold
+distanceLabel.TextSize = 14
+distanceLabel.Text = "Dist"
+distanceLabel.Parent = miscPanel
+
+
+
+local spawnPosition=Vector3.new(0,5,0)
+RunService.Heartbeat:Connect(function()
+    local char=player.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        local dist=(char.HumanoidRootPart.Position-spawnPosition).Magnitude
+        distanceLabel.Text=string.format("Distance: %.1f",dist)
+    end
+end)
+
+
+local noclipBtn = Instance.new("TextButton")
+noclipBtn.Size = UDim2.new(0, 100, 0, 30)
+noclipBtn.Position = UDim2.new(0, 10, 0, 350) -- to the right of other ESPs
+noclipBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+noclipBtn.TextColor3 = Color3.new(1, 1, 1)
+noclipBtn.Font = Enum.Font.SourceSansBold
+noclipBtn.TextSize = 14
+noclipBtn.Text = "NoClip"
+noclipBtn.Parent = miscPanel
+
+		
+
+noclipBtn.MouseButton1Click:Connect(function()
+	noclipEnabled = not noclipEnabled
+	noclipBtn.BackgroundColor3 = noclipEnabled and Color3.fromRGB(0,150,0) or Color3.fromRGB(100,100,100)
+	noclipBtn.Text = noclipEnabled and "Noclip: ON" or "Noclip: OFF"
+	statusLabel.Text = "Status: Noclip " .. (noclipEnabled and "Enabled" or "Disabled")
+end)
+
+RunService.Stepped:Connect(function()
+	if noclipEnabled and player.Character then
+		for _, part in pairs(player.Character:GetDescendants()) do
+			if part:IsA("BasePart") and part.CanCollide == true then
+				part.CanCollide = false
+			end
+		end
+	end
+end)
+
+-- // NoCollision Toggle
+local noCollisionEnabled = false
+local noCollisionConnection
+
+local noCollisionToggle = Instance.new("TextButton")
+noCollisionToggle.Size = UDim2.new(0, 150, 0, 30)
+noCollisionToggle.Position = UDim2.new(0, 10, 0, 350) -- below your Distance label
+noCollisionToggle.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+noCollisionToggle.TextColor3 = Color3.new(1, 1, 1)
+noCollisionToggle.Font = Enum.Font.SourceSansBold
+noCollisionToggle.TextSize = 14
+noCollisionToggle.Text = "NoCollision: OFF"
+noCollisionToggle.Parent = miscPanel
+
+noCollisionToggle.MouseButton1Click:Connect(function()
+	noCollisionEnabled = not noCollisionEnabled
+	noCollisionToggle.Text = "NoCollision: " .. (noCollisionEnabled and "ON" or "OFF")
+
+	if noCollisionEnabled then
+		noCollisionConnection = RunService.Heartbeat:Connect(function()
+			local char = game.Players.LocalPlayer.Character
+			if char then
+				for _, part in ipairs(char:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+						part.CanTouch = false
+						part.CanQuery = false
+					end
+				end
+			end
+		end)
+	else
+		if noCollisionConnection then
+			noCollisionConnection:Disconnect()
+			noCollisionConnection = nil
+		end
+
+		-- Optional: restore defaults if desired
+		local char = game.Players.LocalPlayer.Character
+		if char then
+			for _, part in ipairs(char:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.CanCollide = true
+					part.CanTouch = true
+					part.CanQuery = true
+				end
+			end
+		end
+	end
+end)
+
+
+
+--===============================
+-- AUTO EAT SECTION (MISC TAB)
+--===============================
+task.spawn(function()
+	local player = game.Players.LocalPlayer
+	local RunService = game:GetService("RunService")
+	local VirtualInputManager = game:GetService("VirtualInputManager")
+
+	repeat task.wait(0.1) until panels and panels["Misc"]
+	local miscPanel = panels["Misc"]
+
+	-- Hunger label
+	local hungerLabel = Instance.new("TextLabel")
+	hungerLabel.Size = UDim2.new(0, 60, 0, 25)
+	hungerLabel.Position = UDim2.new(0, 10, 0, 390)
+	hungerLabel.Text = "Hunger:"
+	hungerLabel.TextColor3 = Color3.new(1,1,1)
+	hungerLabel.BackgroundTransparency = 1
+	hungerLabel.Font = Enum.Font.SourceSansBold
+	hungerLabel.TextSize = 16
+	hungerLabel.Parent = miscPanel
+
+	-- Hunger threshold input
+	local hungerInput = Instance.new("TextBox")
+	hungerInput.Size = UDim2.new(0, 50, 0, 25)
+	hungerInput.Position = UDim2.new(0, 75, 0, 390)
+	hungerInput.BackgroundColor3 = Color3.fromRGB(60,60,60)
+	hungerInput.TextColor3 = Color3.new(1,1,1)
+	hungerInput.PlaceholderText = "110"
+	hungerInput.Text = "110"
+	hungerInput.Font = Enum.Font.SourceSans
+	hungerInput.TextSize = 16
+	hungerInput.Parent = miscPanel
+
+	-- Hotbar label
+	local hotbarLabel = Instance.new("TextLabel")
+	hotbarLabel.Size = UDim2.new(0, 55, 0, 25)
+	hotbarLabel.Position = UDim2.new(0, 130, 0, 390)
+	hotbarLabel.Text = "Hotbar:"
+	hotbarLabel.TextColor3 = Color3.new(1,1,1)
+	hotbarLabel.BackgroundTransparency = 1
+	hotbarLabel.Font = Enum.Font.SourceSansBold
+	hotbarLabel.TextSize = 16
+	hotbarLabel.Parent = miscPanel
+
+	-- Hotbar key dropdown
+	local keyDropdown = Instance.new("TextButton")
+	keyDropdown.Size = UDim2.new(0, 40, 0, 25)
+	keyDropdown.Position = UDim2.new(0, 185, 0, 390)
+	keyDropdown.BackgroundColor3 = Color3.fromRGB(60,60,60)
+	keyDropdown.TextColor3 = Color3.new(1,1,1)
+	keyDropdown.Font = Enum.Font.SourceSans
+	keyDropdown.TextSize = 16
+	keyDropdown.Text = "9"
+	keyDropdown.Parent = miscPanel
+
+	local dropdownOpen = false
+	local dropdownFrame = Instance.new("Frame")
+	dropdownFrame.Size = UDim2.new(0, 40, 0, 0)
+	dropdownFrame.Position = UDim2.new(0, 185, 0, 415)
+	dropdownFrame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+	dropdownFrame.BorderSizePixel = 1
+	dropdownFrame.Visible = false
+	dropdownFrame.Parent = miscPanel
+
+	for i = 1, 9 do
+		local option = Instance.new("TextButton")
+		option.Size = UDim2.new(1, 0, 0, 20)
+		option.Position = UDim2.new(0, 0, 0, (i - 1) * 20)
+		option.BackgroundColor3 = Color3.fromRGB(50,50,50)
+		option.TextColor3 = Color3.new(1,1,1)
+		option.Font = Enum.Font.SourceSans
+		option.TextSize = 14
+		option.Text = tostring(i)
+		option.Parent = dropdownFrame
+
+		option.MouseButton1Click:Connect(function()
+			keyDropdown.Text = tostring(i)
+			dropdownFrame.Visible = false
+			dropdownOpen = false
+		end)
+	end
+
+	keyDropdown.MouseButton1Click:Connect(function()
+		dropdownOpen = not dropdownOpen
+		dropdownFrame.Visible = dropdownOpen
+	end)
+
+	-- Toggle button
+	local toggleButton = Instance.new("TextButton")
+	toggleButton.Size = UDim2.new(0, 110, 0, 25)
+	toggleButton.Position = UDim2.new(0, 230, 0, 390)
+	toggleButton.BackgroundColor3 = Color3.fromRGB(70,70,70)
+	toggleButton.TextColor3 = Color3.new(1,1,1)
+	toggleButton.Font = Enum.Font.SourceSansBold
+	toggleButton.TextSize = 14
+	toggleButton.Text = "Auto Stew: OFF"
+	toggleButton.Parent = miscPanel
+
+	-- Logic
+	local enabled = false
+	local connection
+	local lastEat = 0
+	local eatCooldown = 2
+
+	toggleButton.MouseButton1Click:Connect(function()
+		enabled = not enabled
+		toggleButton.Text = "Auto Stew: " .. (enabled and "ON" or "OFF")
+
+		if enabled then
+			connection = RunService.Heartbeat:Connect(function()
+				local hunger = player:GetAttribute("Hunger")
+				local threshold = tonumber(hungerInput.Text) or 110
+				local keyNum = tonumber(keyDropdown.Text) or 9
+
+				if hunger and hunger <= threshold and (tick() - lastEat) >= eatCooldown then
+					lastEat = tick()
+
+					local keyEnum = ({
+						Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three,
+						Enum.KeyCode.Four, Enum.KeyCode.Five, Enum.KeyCode.Six,
+						Enum.KeyCode.Seven, Enum.KeyCode.Eight, Enum.KeyCode.Nine
+					})[keyNum] or Enum.KeyCode.Nine
+
+					-- Press chosen hotbar key
+					VirtualInputManager:SendKeyEvent(true, keyEnum, false, game)
+					task.wait(0.05)
+					VirtualInputManager:SendKeyEvent(false, keyEnum, false, game)
+
+					task.wait(0.1)
+
+					-- Left click
+					VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,0)
+					task.wait(0.1)
+					VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,0)
+					task.wait(0.5)
+					
+						-- Press chosen hotbar key
+					VirtualInputManager:SendKeyEvent(true, KeyCode.Four, false, game)
+					task.wait(0.05)
+					VirtualInputManager:SendKeyEvent(false, KeyCode.Four, false, game)
+					
+					task.wait(1)
+				end
+			end)
+		else
+			if connection then
+				connection:Disconnect()
+				connection = nil
+			end
+		end
+	end)
+end)
+
+--===============================
+-- AUTO EAT2 (Collection-style)
+--===============================
+local autoEat2Enabled = false
+local eatCooldown = 1 -- seconds between eats
+local lastEat = 0
+
+local foodNames = {"Pumpkin","Corn","Carrot","Cake"} -- hardcoded food
+
+-- GUI Toggle
+local miscPanel = panels["Misc"]
+local autoEat2Btn = Instance.new("TextButton")
+autoEat2Btn.Size = UDim2.new(0,130,0,25)
+autoEat2Btn.Position = UDim2.new(0,10,0,420)
+autoEat2Btn.BackgroundColor3 = Color3.fromRGB(70,70,70)
+autoEat2Btn.TextColor3 = Color3.new(1,1,1)
+autoEat2Btn.Font = Enum.Font.SourceSansBold
+autoEat2Btn.TextSize = 14
+autoEat2Btn.Text = "Auto Eat2: OFF"
+autoEat2Btn.Parent = miscPanel
+
+autoEat2Btn.MouseButton1Click:Connect(function()
+    autoEat2Enabled = not autoEat2Enabled
+    autoEat2Btn.Text = "Auto Eat2: " .. (autoEat2Enabled and "ON" or "OFF")
+end)
+
+-- Hunger Label
+local hungerLabel = Instance.new("TextLabel")
+hungerLabel.Size = UDim2.new(0,80,0,25)
+hungerLabel.Position = UDim2.new(0,150,0,420)
+hungerLabel.BackgroundTransparency = 1
+hungerLabel.TextColor3 = Color3.new(1,1,1)
+hungerLabel.Font = Enum.Font.SourceSansBold
+hungerLabel.TextSize = 14
+hungerLabel.Text = "Hunger: 0"
+hungerLabel.Parent = miscPanel
+
+-- Update Hunger Display
+RunService.Heartbeat:Connect(function()
+    local hunger = player:GetAttribute("Hunger")
+    if hunger then hungerLabel.Text = "Hunger: "..math.floor(hunger) end
+end)
+
+-- AutoEat2 Logic
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if not autoEat2Enabled then continue end
+        local hunger = player:GetAttribute("Hunger")
+        if not hunger or hunger > 150 then continue end -- trigger threshold
+
+        if (tick()-lastEat) < eatCooldown then continue end
+        lastEat = tick()
+
+        -- Find nearest food
+        local nearestFood, nearestDist = nil, math.huge
+        for _, model in pairs(itemsFolder:GetChildren()) do
+            if model:IsA("Model") then
+                for _, fname in ipairs(foodNames) do
+                    if model.Name:lower():find(fname:lower()) then
+                        local part = model:FindFirstChild("Handle") or model:FindFirstChild("Main") or model:FindFirstChildWhichIsA("BasePart")
+                        if part then
+                            local d = (part.Position - hrp.Position).Magnitude
+                            if d < nearestDist then
+                                nearestFood = part
+                                nearestDist = d
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if nearestFood then
+            -- Teleport food in front of camera
+            local cam = workspace.CurrentCamera
+           nearestFood.CFrame = CFrame.new(cam.CFrame.Position + cam.CFrame.LookVector*5)
+
+
+       -- Interact with item
+VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1) -- Mouse1 down
+RunService.Heartbeat:Wait()
+RunService.Heartbeat:Wait()
+
+VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game) -- Press E
+RunService.Heartbeat:Wait()
+VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game) -- Release E
+RunService.Heartbeat:Wait()
+
+VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1) -- Mouse1 up
+RunService.Heartbeat:Wait()
+RunService.Heartbeat:Wait()
+
+        end
+    end
+end)
+
+
+
+-- Auto Tree Farm GUI Button
+local treeFarmBtn = Instance.new("TextButton")
+treeFarmBtn.Size = UDim2.new(0, 130, 0, 25)
+treeFarmBtn.Position = UDim2.new(0, 10, 0, 450)
+treeFarmBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+treeFarmBtn.TextColor3 = Color3.new(1,1,1)
+treeFarmBtn.Font = Enum.Font.SourceSansBold
+treeFarmBtn.TextSize = 14
+treeFarmBtn.Text = "Auto Tree Farm: OFF"
+treeFarmBtn.Parent = miscPanel
+
+local AutoTreeFarmEnabled = false
+local badTrees = {}
+
+treeFarmBtn.MouseButton1Click:Connect(function()
+    AutoTreeFarmEnabled = not AutoTreeFarmEnabled
+    treeFarmBtn.Text = "Auto Tree Farm: " .. (AutoTreeFarmEnabled and "ON" or "OFF")
+end)
+
+-- Auto Tree Farm with fire distance, max 13 clicks, and auto-reset
+local badTrees = {}
+
+-- Main loop
+task.spawn(function()
+    local LocalPlayer = game.Players.LocalPlayer
+    local VirtualInput = game:GetService("VirtualInputManager")
+
+    local function mouse1click()
+        VirtualInput:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        VirtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    end
+
+    while true do
+        if AutoTreeFarmEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = LocalPlayer.Character.HumanoidRootPart
+            local trees = {}
+
+            -- Collect valid trees within fire range
+            for _, obj in pairs(workspace:GetDescendants()) do
+                if not AutoTreeFarmEnabled then break end  -- stop early if toggled off
+                if obj.Name == "Trunk" and obj.Parent and obj.Parent.Name == "Small Tree" then
+                    local dist = (obj.Position - Vector3.new(0,0,0)).Magnitude  -- Fire origin
+                    if fireDistances and fireDistances[fireLevel] and dist <= fireDistances[fireLevel] and not badTrees[obj:GetFullName()] then
+                        table.insert(trees, obj)
+                    end
+                end
+            end
+
+            -- Sort by distance to player
+            table.sort(trees, function(a, b)
+                return (a.Position - hrp.Position).Magnitude < (b.Position - hrp.Position).Magnitude
+            end)
+
+            for _, trunk in ipairs(trees) do
+                if not AutoTreeFarmEnabled then break end
+                if not trunk or not trunk.Parent then continue end
+
+                -- Move player above tree
+                LocalPlayer.Character:PivotTo(trunk.CFrame + Vector3.new(0, 3, 0))
+                task.wait(0.25)
+
+                -- Chop tree until it disappears, 13 clicks max, or toggle off
+                local clickCount = 0
+                while AutoTreeFarmEnabled and trunk and trunk.Parent and trunk.Parent.Name == "Small Tree" and clickCount < 13 do
+                    mouse1click()
+                    clickCount += 1
+                    task.wait(0.85)
+                end
+
+                -- Mark as bad if still exists after 13 clicks
+                if trunk and trunk.Parent and trunk.Parent.Name == "Small Tree" then
+                    badTrees[trunk:GetFullName()] = true
+                end
+
+                task.wait(0.3)
+            end
+
+            -- Auto-reset after finishing all reachable trees or if toggled off
+            AutoTreeFarmEnabled = false
+            badTrees = {}
+            treeFarmBtn.Text = "Auto Tree Farm: OFF"
+            statusLabel.Text = "Status: Auto Tree Farm completed"
+        end
+        task.wait(0.2)
+    end
+end)
+
+
+
+--===============================
+-- TELEPORT TAB
+--===============================
+
+local player = game.Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local teleportPanel = panels["Teleport"]
+
+-- Ensure character and HRP
+local char = player.Character or player.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+
+-- Status label
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(0, 300, 0, 25)
+statusLabel.Position = UDim2.new(0, 10, 0, 300)
+statusLabel.BackgroundTransparency = 1
+statusLabel.TextColor3 = Color3.new(1, 1, 1)
+statusLabel.Font = Enum.Font.SourceSansBold
+statusLabel.TextSize = 16
+statusLabel.Text = "Status: Ready"
+statusLabel.Parent = teleportPanel
+
+--===============================
+-- Teleport buttons (Home / UFO)
+--===============================
+
+local function createTPButton(name, posX, posY, color, callback)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 120, 0, 40)
+	btn.Position = UDim2.new(0, posX, 0, posY)
+	btn.BackgroundColor3 = color
+	btn.Text = name
+	btn.TextColor3 = Color3.new(1, 1, 1)
+	btn.Font = Enum.Font.SourceSansBold
+	btn.TextSize = 16
+	btn.Parent = teleportPanel
+	btn.MouseButton1Click:Connect(callback)
+	return btn
+end
+
+createTPButton("Home", 10, 10, Color3.fromRGB(80,80,80), function()
+	if hrp then
+		hrp.CFrame = CFrame.new(Vector3.new(0,10,0))
+		statusLabel.Text = "Status: Teleported Home"
+	end
+end)
+
+createTPButton("UFO", 150, 10, Color3.fromRGB(80,80,80), function()
+	local ufo = workspace:FindFirstChild("Structures") and workspace.Structures:FindFirstChild("Alien Shelf")
+	if ufo and ufo:FindFirstChild("Main") then
+		hrp.CFrame = CFrame.new(ufo.Main.Position)
+		statusLabel.Text = "Status: Teleported to UFO"
+	else
+		statusLabel.Text = "Status: UFO not found"
+	end
+end)
+
+createTPButton("Frog", 290, 30, Color3.fromRGB(80,80,80), function()
+	local ufo = workspace:FindFirstChild("Structures") and workspace.Structures:FindFirstChild("Alien Shelf")
+	if ufo and ufo:FindFirstChild("Main") then
+		hrp.CFrame = CFrame.new(ufo.Main.Position)
+		statusLabel.Text = "Status: Teleported to UFO"
+	else
+		statusLabel.Text = "Status: UFO not found"
+	end
+end)
+
+--===============================
+-- Click TP
+--===============================
+
+local clickTPButton = createTPButton("Click TP: OFF", 10, 60, Color3.fromRGB(120,50,50), function() end)
+local clickTPEnabled = false
+clickTPButton.MouseButton1Click:Connect(function()
+	clickTPEnabled = not clickTPEnabled
+	clickTPButton.Text = "Click TP: " .. (clickTPEnabled and "ON" or "OFF")
+	clickTPButton.BackgroundColor3 = clickTPEnabled and Color3.fromRGB(50,120,50) or Color3.fromRGB(120,50,50)
+end)
+
+local mouse = player:GetMouse()
+mouse.Button1Down:Connect(function()
+	if clickTPEnabled and hrp then
+		hrp.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0,5,0))
+		statusLabel.Text = "Status: Click Teleported"
+	end
+end)
+
+--===============================
+-- TP 1 / Reset
+--===============================
+
+local tpPosition = nil
+local tp1Button = createTPButton("TP 1", 150, 60, Color3.fromRGB(80,80,80), function()
+	if not tpPosition then
+		tpPosition = hrp.CFrame
+		statusLabel.Text = "Status: TP Position Set"
+	else
+		hrp.CFrame = tpPosition
+		statusLabel.Text = "Status: Teleported to TP 1"
+	end
+end)
+
+local resetTPButton = Instance.new("TextButton")
+resetTPButton.Size = UDim2.new(0, 40, 0, 40)
+resetTPButton.Position = UDim2.new(0, 280, 0, 60)
+resetTPButton.BackgroundColor3 = Color3.fromRGB(150,50,50)
+resetTPButton.Text = "⟳"
+resetTPButton.TextColor3 = Color3.new(1,1,1)
+resetTPButton.Font = Enum.Font.SourceSansBold
+resetTPButton.TextSize = 18
+resetTPButton.Parent = teleportPanel
+resetTPButton.MouseButton1Click:Connect(function()
+	tpPosition = nil
+	statusLabel.Text = "Status: TP Position Reset"
+end)
+
+-- Hotkey T to TP 1
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.T then
+		if not tpPosition then
+			tpPosition = hrp.CFrame
+			statusLabel.Text = "Status: TP Position Set"
+		else
+			hrp.CFrame = tpPosition
+			statusLabel.Text = "Status: Teleported to TP 1"
+		end
+	end
+end)
+
+--===============================
+-- Player List
+--===============================
+
+local playerListFrame = Instance.new("ScrollingFrame")
+playerListFrame.Size = UDim2.new(1, -10, 0, 200)
+playerListFrame.Position = UDim2.new(0, 10, 0, 110)
+playerListFrame.BackgroundColor3 = Color3.fromRGB(50,50,50)
+playerListFrame.ScrollBarThickness = 6
+playerListFrame.Parent = teleportPanel
+
+local playerUIList = Instance.new("UIListLayout")
+playerUIList.SortOrder = Enum.SortOrder.LayoutOrder
+playerUIList.Parent = playerListFrame
+
+local selectedPlayer = nil
+
+local function findHeadRecursive(model)
+	for _, child in pairs(model:GetChildren()) do
+		if child:IsA("BasePart") and child.Name:lower() == "head" then
+			return child
+		elseif child:IsA("Model") or child:IsA("Folder") then
+			local found = findHeadRecursive(child)
+			if found then return found end
+		end
+	end
+	return nil
+end
+
+local function updatePlayerList()
+	for _, c in pairs(playerListFrame:GetChildren()) do
+		if c:IsA("TextButton") then c:Destroy() end
+	end
+
+	local order = 1
+	for _, plr in pairs(game.Players:GetPlayers()) do
+		if plr ~= player then
+			local btn = Instance.new("TextButton")
+			btn.Size = UDim2.new(1, -10, 0, 30)
+			btn.Font = Enum.Font.SourceSans
+			btn.TextSize = 16
+			btn.Text = plr.Name
+			btn.LayoutOrder = order
+			btn.TextColor3 = Color3.new(1,1,1)
+			btn.Parent = playerListFrame
+
+			local function updateButtonColor()
+				local char = plr.Character
+				if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
+					btn.BackgroundColor3 = Color3.fromRGB(50, 120, 50)
+				else
+					btn.BackgroundColor3 = Color3.fromRGB(120, 50, 50)
+				end
+			end
+
+			btn.MouseButton1Click:Connect(function()
+				selectedPlayer = plr
+				statusLabel.Text = "Selected: "..plr.Name
+
+				local targetPart
+				if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+					targetPart = plr.Character.HumanoidRootPart
+				else
+					local deadCharFolder = workspace:FindFirstChild("Characters")
+					if deadCharFolder then
+						for _, model in pairs(deadCharFolder:GetChildren()) do
+							if model:IsA("Model") and model.Name:sub(1,#plr.Name) == plr.Name and model.Name:sub(-4) == "Body" then
+								targetPart = findHeadRecursive(model)
+								break
+							end
+						end
+					end
+				end
+
+				if targetPart and hrp then
+					hrp.CFrame = targetPart.CFrame + Vector3.new(0,6,0)
+					statusLabel.Text = "Teleported to "..plr.Name
+				else
+					statusLabel.Text = "Target part not found"
+				end
+			end)
+
+			local conn
+			conn = RunService.Heartbeat:Connect(updateButtonColor)
+			btn.Destroying:Connect(function() conn:Disconnect() end)
+
+			order += 1
+		end
+	end
+
+	playerListFrame.CanvasSize = UDim2.new(0,0,0,playerUIList.AbsoluteContentSize.Y)
+end
+
+Players.PlayerAdded:Connect(updatePlayerList)
+Players.PlayerRemoving:Connect(updatePlayerList)
+updatePlayerList()
+
+--===============================
+-- TELEPORT TAB (PATCHED for Respawn)
+--===============================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local player = Players.LocalPlayer
+local teleportPanel = panels["Teleport"]
+
+-- 🧭 Dynamic HRP reference
+local char = player.Character or player.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+
+-- Rebind hrp whenever the player respawns
+player.CharacterAdded:Connect(function(newChar)
+	char = newChar
+	hrp = newChar:WaitForChild("HumanoidRootPart")
+end)
+
+--===============================
+-- STATUS LABEL
+--===============================
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(0, 300, 0, 25)
+statusLabel.Position = UDim2.new(0, 10, 0, 300)
+statusLabel.BackgroundTransparency = 1
+statusLabel.TextColor3 = Color3.new(1, 1, 1)
+statusLabel.Font = Enum.Font.SourceSansBold
+statusLabel.TextSize = 16
+statusLabel.Text = "Status: Ready"
+statusLabel.Parent = teleportPanel
+
+--===============================
+-- TELEPORT BUTTON CREATOR
+--===============================
+local function createTPButton(name, posX, posY, color, callback)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 120, 0, 40)
+	btn.Position = UDim2.new(0, posX, 0, posY)
+	btn.BackgroundColor3 = color
+	btn.Text = name
+	btn.TextColor3 = Color3.new(1, 1, 1)
+	btn.Font = Enum.Font.SourceSansBold
+	btn.TextSize = 16
+	btn.Parent = teleportPanel
+	btn.MouseButton1Click:Connect(callback)
+	return btn
+end
+
+--===============================
+-- SIMPLE TELEPORTS
+--===============================
+createTPButton("Home", 10, 10, Color3.fromRGB(80,80,80), function()
+	if hrp then
+		hrp.CFrame = CFrame.new(Vector3.new(0,10,0))
+		statusLabel.Text = "Status: Teleported Home"
+	end
+end)
+
+createTPButton("UFO", 150, 10, Color3.fromRGB(80,80,80), function()
+	local structures = workspace:FindFirstChild("Structures")
+	local ufo = structures and structures:FindFirstChild("Alien Shelf")
+	if ufo and ufo:FindFirstChild("Main") and hrp then
+		hrp.CFrame = CFrame.new(ufo.Main.Position)
+		statusLabel.Text = "Status: Teleported to UFO"
+	else
+		statusLabel.Text = "Status: UFO not found"
+	end
+end)
+
+--===============================
+-- CLICK TP
+--===============================
+local clickTPEnabled = false
+local clickTPButton = createTPButton("Click TP: OFF", 10, 60, Color3.fromRGB(120,50,50), function() end)
+
+clickTPButton.MouseButton1Click:Connect(function()
+	clickTPEnabled = not clickTPEnabled
+	clickTPButton.Text = "Click TP: " .. (clickTPEnabled and "ON" or "OFF")
+	clickTPButton.BackgroundColor3 = clickTPEnabled and Color3.fromRGB(50,120,50) or Color3.fromRGB(120,50,50)
+end)
+
+local mouse = player:GetMouse()
+mouse.Button1Down:Connect(function()
+	if clickTPEnabled and hrp then
+		hrp.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0,5,0))
+		statusLabel.Text = "Status: Click Teleported"
+	end
+end)
+
+--===============================
+-- TP 1 / RESET
+--===============================
+local tpPosition = nil
+
+local tp1Button = createTPButton("TP 1", 150, 60, Color3.fromRGB(80,80,80), function()
+	if not hrp then return end
+	if not tpPosition then
+		tpPosition = hrp.CFrame
+		statusLabel.Text = "Status: TP Position Set"
+	else
+		hrp.CFrame = tpPosition
+		statusLabel.Text = "Status: Teleported to TP 1"
+	end
+end)
+
+local resetTPButton = Instance.new("TextButton")
+resetTPButton.Size = UDim2.new(0, 40, 0, 40)
+resetTPButton.Position = UDim2.new(0, 280, 0, 60)
+resetTPButton.BackgroundColor3 = Color3.fromRGB(150,50,50)
+resetTPButton.Text = "⟳"
+resetTPButton.TextColor3 = Color3.new(1,1,1)
+resetTPButton.Font = Enum.Font.SourceSansBold
+resetTPButton.TextSize = 18
+resetTPButton.Parent = teleportPanel
+resetTPButton.MouseButton1Click:Connect(function()
+	tpPosition = nil
+	statusLabel.Text = "Status: TP Position Reset"
+end)
+
+-- Hotkey T → Quick TP 1
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed or not hrp then return end
+	if input.KeyCode == Enum.KeyCode.T then
+		if not tpPosition then
+			tpPosition = hrp.CFrame
+			statusLabel.Text = "Status: TP Position Set"
+		else
+			hrp.CFrame = tpPosition
+			statusLabel.Text = "Status: Teleported to TP 1"
+		end
+	end
+end)
+
+--===============================
+-- PLAYER LIST + TELEPORT TO PLAYER
+--===============================
+local playerListFrame = Instance.new("ScrollingFrame")
+playerListFrame.Size = UDim2.new(1, -10, 0, 200)
+playerListFrame.Position = UDim2.new(0, 10, 0, 110)
+playerListFrame.BackgroundColor3 = Color3.fromRGB(50,50,50)
+playerListFrame.ScrollBarThickness = 6
+playerListFrame.Parent = teleportPanel
+
+local playerUIList = Instance.new("UIListLayout")
+playerUIList.SortOrder = Enum.SortOrder.LayoutOrder
+playerUIList.Parent = playerListFrame
+
+local selectedPlayer = nil
+
+local function findHeadRecursive(model)
+	for _, child in pairs(model:GetChildren()) do
+		if child:IsA("BasePart") and child.Name:lower() == "head" then
+			return child
+		elseif child:IsA("Model") or child:IsA("Folder") then
+			local found = findHeadRecursive(child)
+			if found then return found end
+		end
+	end
+	return nil
+end
+
+local function updatePlayerList()
+	for _, c in pairs(playerListFrame:GetChildren()) do
+		if c:IsA("TextButton") then c:Destroy() end
+	end
+
+	local order = 1
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= player then
+			local btn = Instance.new("TextButton")
+			btn.Size = UDim2.new(1, -10, 0, 30)
+			btn.Font = Enum.Font.SourceSans
+			btn.TextSize = 16
+			btn.Text = plr.Name
+			btn.LayoutOrder = order
+			btn.TextColor3 = Color3.new(1,1,1)
+			btn.Parent = playerListFrame
+
+			local function updateButtonColor()
+				local char = plr.Character
+				if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
+					btn.BackgroundColor3 = Color3.fromRGB(50, 120, 50)
+				else
+					btn.BackgroundColor3 = Color3.fromRGB(120, 50, 50)
+				end
+			end
+
+			btn.MouseButton1Click:Connect(function()
+				selectedPlayer = plr
+				statusLabel.Text = "Selected: "..plr.Name
+
+				local targetPart
+				if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+					targetPart = plr.Character.HumanoidRootPart
+				else
+					local deadCharFolder = workspace:FindFirstChild("Characters")
+					if deadCharFolder then
+						for _, model in pairs(deadCharFolder:GetChildren()) do
+							if model:IsA("Model") and model.Name:sub(1,#plr.Name) == plr.Name and model.Name:sub(-4) == "Body" then
+								targetPart = findHeadRecursive(model)
+								break
+							end
+						end
+					end
+				end
+
+				if targetPart and hrp then
+					hrp.CFrame = targetPart.CFrame + Vector3.new(0,6,0)
+					statusLabel.Text = "Teleported to "..plr.Name
+				else
+					statusLabel.Text = "Target part not found"
+				end
+			end)
+
+			local conn
+			conn = RunService.Heartbeat:Connect(updateButtonColor)
+			btn.Destroying:Connect(function() conn:Disconnect() end)
+
+			order += 1
+		end
+	end
+
+	playerListFrame.CanvasSize = UDim2.new(0,0,0,playerUIList.AbsoluteContentSize.Y)
+end
+
+Players.PlayerAdded:Connect(updatePlayerList)
+Players.PlayerRemoving:Connect(updatePlayerList)
+updatePlayerList()
+
+--===============================
+-- TRAP LOGIC (FRONT/BACK QUICK)
+--===============================
+local trapDistanceBox = Instance.new("TextBox")
+trapDistanceBox.Size = UDim2.new(0, 50, 0, 30)
+trapDistanceBox.Position = UDim2.new(0, 10, 0, 320)
+trapDistanceBox.PlaceholderText = "3"
+trapDistanceBox.Text = "3"
+trapDistanceBox.BackgroundColor3 = Color3.fromRGB(60,60,60)
+trapDistanceBox.TextColor3 = Color3.new(1,1,1)
+trapDistanceBox.Font = Enum.Font.SourceSans
+trapDistanceBox.TextSize = 16
+trapDistanceBox.Parent = teleportPanel
+
+local trapKeyDropdown = Instance.new("TextButton")
+trapKeyDropdown.Size = UDim2.new(0, 40, 0, 30)
+trapKeyDropdown.Position = UDim2.new(0, 70, 0, 320)
+trapKeyDropdown.BackgroundColor3 = Color3.fromRGB(60,60,60)
+trapKeyDropdown.TextColor3 = Color3.new(1,1,1)
+trapKeyDropdown.Font = Enum.Font.SourceSans
+trapKeyDropdown.TextSize = 16
+trapKeyDropdown.Text = "9"
+trapKeyDropdown.Parent = teleportPanel
+
+local dropdownOpen = false
+local dropdownFrame = Instance.new("Frame")
+dropdownFrame.Size = UDim2.new(0, 40, 0, 0)
+dropdownFrame.Position = UDim2.new(0, 70, 0, 350)
+dropdownFrame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+dropdownFrame.Visible = false
+dropdownFrame.Parent = teleportPanel
+
+for i=1,9 do
+	local option = Instance.new("TextButton")
+	option.Size = UDim2.new(1,0,0,20)
+	option.Position = UDim2.new(0,0,0,(i-1)*20)
+	option.BackgroundColor3 = Color3.fromRGB(50,50,50)
+	option.TextColor3 = Color3.new(1,1,1)
+	option.Font = Enum.Font.SourceSans
+	option.TextSize = 14
+	option.Text = tostring(i)
+	option.Parent = dropdownFrame
+
+	option.MouseButton1Click:Connect(function()
+		trapKeyDropdown.Text = tostring(i)
+		dropdownFrame.Visible = false
+		dropdownOpen = false
+	end)
+end
+
+trapKeyDropdown.MouseButton1Click:Connect(function()
+	dropdownOpen = not dropdownOpen
+	dropdownFrame.Visible = dropdownOpen
+end)
+
+local trapButton = Instance.new("TextButton")
+trapButton.Size = UDim2.new(0, 110, 0, 30)
+trapButton.Position = UDim2.new(0, 120, 0, 320)
+trapButton.BackgroundColor3 = Color3.fromRGB(120,50,50)
+trapButton.TextColor3 = Color3.new(1,1,1)
+trapButton.Font = Enum.Font.SourceSansBold
+trapButton.TextSize = 14
+trapButton.Text = "Trap Player"
+trapButton.Parent = teleportPanel
+
+trapButton.MouseButton1Click:Connect(function()
+	if not selectedPlayer then
+		statusLabel.Text = "No player selected"
+		return
+	end
+	if not hrp then
+		statusLabel.Text = "Character not ready"
+		return
+	end
+
+	local targetChar = selectedPlayer.Character
+	local targetHRP = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+	if not targetHRP then
+		statusLabel.Text = "Target part not found"
+		return
+	end
+
+	local keyNum = tonumber(trapKeyDropdown.Text) or 9
+	local keyEnum = ({
+		Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three,
+		Enum.KeyCode.Four, Enum.KeyCode.Five, Enum.KeyCode.Six,
+		Enum.KeyCode.Seven, Enum.KeyCode.Eight, Enum.KeyCode.Nine
+	})[keyNum] or Enum.KeyCode.Nine
+
+	local targetCFrame = targetHRP.CFrame
+	local frontDistance, backDistance = 8, 12
+
+	local function doTrap(offset)
+		hrp.CFrame = targetCFrame * offset
+		hrp.CFrame = CFrame.lookAt(hrp.Position, targetCFrame.Position)
+
+		VirtualInputManager:SendKeyEvent(true, keyEnum, false, game)
+		RunService.Heartbeat:Wait()
+		VirtualInputManager:SendKeyEvent(false, keyEnum, false, game)
+		RunService.Heartbeat:Wait()
+		VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,0)
+		RunService.Heartbeat:Wait()
+		VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,0)
+	end
+
+	doTrap(CFrame.new(targetCFrame.LookVector * frontDistance))
+	RunService.Heartbeat:Wait()
+	doTrap(CFrame.new(-targetCFrame.LookVector * backDistance))
+
+	statusLabel.Text = "Trapped "..selectedPlayer.Name
+end)
+
+
+
+-- CHESTS
+local chestPanel = panels["Chests"]
+local chestList = {}
+local currentChestIndex = 0
+
+-- Console for chest info
+local chestConsole = Instance.new("TextLabel")
+chestConsole.Size = UDim2.new(1, -20, 0, 120)
+chestConsole.Position = UDim2.new(0, 10, 0, 60)
+chestConsole.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+chestConsole.TextColor3 = Color3.fromRGB(0, 255, 0) -- green text
+chestConsole.Font = Enum.Font.Code
+chestConsole.TextSize = 14
+chestConsole.TextXAlignment = Enum.TextXAlignment.Left
+chestConsole.TextYAlignment = Enum.TextYAlignment.Top
+chestConsole.TextWrapped = false
+chestConsole.Text = "Chest Console:\n"
+chestConsole.Parent = chestPanel
+
+-- Buttons
+local refreshChestButton = Instance.new("TextButton")
+refreshChestButton.Size = UDim2.new(0, 120, 0, 40)
+refreshChestButton.Position = UDim2.new(0, 10, 0, 10)
+refreshChestButton.BackgroundColor3 = Color3.fromRGB(90, 90, 90)
+refreshChestButton.TextColor3 = Color3.new(1, 1, 1)
+refreshChestButton.Text = "Refresh Chests"
+refreshChestButton.Font = Enum.Font.SourceSansBold
+refreshChestButton.TextSize = 16
+refreshChestButton.Parent = chestPanel
+
+local nextChestButton = Instance.new("TextButton")
+nextChestButton.Size = UDim2.new(0, 120, 0, 40)
+nextChestButton.Position = UDim2.new(0, 150, 0, 10)
+nextChestButton.BackgroundColor3 = Color3.fromRGB(80, 120, 80)
+nextChestButton.TextColor3 = Color3.new(1, 1, 1)
+nextChestButton.Text = "Next Chest"
+nextChestButton.Font = Enum.Font.SourceSansBold
+nextChestButton.TextSize = 16
+nextChestButton.Parent = chestPanel
+
+-- Chest sort order (priority list)
+local chestPriority = {
+    "Item Chest6", "Item Chest5", "Item Chest4",
+    "Item Chest3", "Item Chest2", "Item Chest",
+    "Snow Chest2", "Snow Chest"
+}
+
+-- Refresh + sort chest list
+local function refreshChestList()
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local itemsFolder = workspace:FindFirstChild("Items")
+
+    chestList = {}
+    local chestCounts = {}
+
+    if not (itemsFolder and hrp) then
+        statusLabel.Text = "Status: Missing Items or HRP"
+        return
+    end
+
+    for _, model in pairs(itemsFolder:GetChildren()) do
+        if model:IsA("Model") and model.Name:lower():find("chest") then
+            local mainPart = model:FindFirstChildWhichIsA("BasePart")
+            if mainPart then
+                local dist = (mainPart.Position - hrp.Position).Magnitude
+                if fireDistances and fireDistances[fireLevel] then
+                    if dist <= fireDistances[fireLevel] then
+                        table.insert(chestList, mainPart)
+                        chestCounts[model.Name] = (chestCounts[model.Name] or 0) + 1
+                    end
+                else
+                    -- fallback if fireDistances not set
+                    table.insert(chestList, mainPart)
+                    chestCounts[model.Name] = (chestCounts[model.Name] or 0) + 1
+                end
+            end
+        end
+    end
+
+    -- sort by priority first, then alphabetically
+    table.sort(chestList, function(a, b)
+        local aIndex = table.find(chestPriority, a.Parent.Name)
+        local bIndex = table.find(chestPriority, b.Parent.Name)
+        if aIndex and bIndex then
+            return aIndex < bIndex
+        elseif aIndex then
+            return true
+        elseif bIndex then
+            return false
+        else
+            return a.Parent.Name < b.Parent.Name
+        end
+    end)
+
+    -- reset index
+    currentChestIndex = 0
+
+    -- update console
+    local consoleText = "Chest Console:\n"
+    for _, chestName in ipairs(chestPriority) do
+        if chestCounts[chestName] then
+            consoleText = consoleText .. chestName .. ": " .. chestCounts[chestName] .. "\n"
+        end
+    end
+    for name, count in pairs(chestCounts) do
+        if not table.find(chestPriority, name) then
+            consoleText = consoleText .. name .. ": " .. count .. "\n"
+        end
+    end
+    chestConsole.Text = consoleText
+end
+
+-- Teleport to next chest
+local function gotoNextChest()
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        statusLabel.Text = "Status: No HumanoidRootPart"
+        return
+    end
+
+    if #chestList == 0 then
+        refreshChestList()
+        if #chestList == 0 then
+            statusLabel.Text = "Status: No chests found"
+            return
+        end
+    end
+
+    currentChestIndex = currentChestIndex + 1
+    if currentChestIndex > #chestList then
+        refreshChestList()
+        currentChestIndex = 1
+    end
+
+    local target = chestList[currentChestIndex]
+    if target and target.Parent then
+        local offsetDistance = 4
+        local verticalOffset = 3
+        hrp.CFrame = CFrame.new(
+            target.Position + target.CFrame.LookVector * offsetDistance + Vector3.new(0, verticalOffset, 0)
+        )
+
+        local cam = workspace.CurrentCamera
+        if cam then
+            cam.CFrame = CFrame.lookAt(cam.CFrame.Position, target.Position)
+        end
+
+        statusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+        statusLabel.Text = "Status: Teleported to Chest " .. currentChestIndex .. "/" .. #chestList
+    else
+        statusLabel.Text = "Status: Chest not found"
+    end
+end
+
+-- Button connections (safe wrapped)
+refreshChestButton.MouseButton1Click:Connect(function()
+    local ok, err = pcall(refreshChestList)
+    if not ok then
+        warn("Error in refreshChestList:", err)
+        statusLabel.Text = "Status: Error refreshing chests"
+    end
+end)
+
+nextChestButton.MouseButton1Click:Connect(function()
+    local ok, err = pcall(gotoNextChest)
+    if not ok then
+        warn("Error in gotoNextChest:", err)
+        statusLabel.Text = "Status: Error going to chest"
+    end
+end)
+
+-- Hotkey
+local chestHotkey = Enum.KeyCode.C
+UserInputService.InputBegan:Connect(function(input, processed)
+    if not processed and input.KeyCode == chestHotkey then
+        gotoNextChest()
+    end
+end)
+
+
+-- CHARACTERS
+local charactersPanel = panels["Characters"]
+
+-- Search box
+local charSearchBox = Instance.new("TextBox")
+charSearchBox.Size = UDim2.new(1, -10, 0, 30)
+charSearchBox.Position = UDim2.new(0, 5, 0, 5)
+charSearchBox.PlaceholderText = "Search NPCs..."
+charSearchBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+charSearchBox.TextColor3 = Color3.new(1, 1, 1)
+charSearchBox.Font = Enum.Font.SourceSans
+charSearchBox.TextSize = 16
+charSearchBox.Parent = charactersPanel
+
+-- Teleport distance
+local tpDistanceBox = Instance.new("TextBox")
+tpDistanceBox.Size = UDim2.new(1,-10,0,30)
+tpDistanceBox.Position = UDim2.new(0,5,0,40)
+tpDistanceBox.PlaceholderText = "Teleport Distance (studs)"
+tpDistanceBox.BackgroundColor3 = Color3.fromRGB(60,60,60)
+tpDistanceBox.TextColor3 = Color3.new(1,1,1)
+tpDistanceBox.Font = Enum.Font.SourceSans
+tpDistanceBox.TextSize = 16
+tpDistanceBox.Text = "3"
+tpDistanceBox.Parent = charactersPanel
+
+-- Refresh button
+local refreshCharButton = Instance.new("TextButton")
+refreshCharButton.Size = UDim2.new(0, 100, 0, 30)
+refreshCharButton.Position = UDim2.new(0, 5, 0, 75)
+refreshCharButton.BackgroundColor3 = Color3.fromRGB(90, 90, 90)
+refreshCharButton.TextColor3 = Color3.new(1, 1, 1)
+refreshCharButton.Text = "Refresh List"
+refreshCharButton.Font = Enum.Font.SourceSansBold
+refreshCharButton.TextSize = 14
+refreshCharButton.Parent = charactersPanel
+
+-- Scrolling frame for characters
+local charListFrame = Instance.new("ScrollingFrame")
+charListFrame.Size = UDim2.new(1, -10, 0, 200)
+charListFrame.Position = UDim2.new(0, 5, 0, 110)
+charListFrame.CanvasSize = UDim2.new(0,0,0,0)
+charListFrame.ScrollBarThickness = 6
+charListFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+charListFrame.Parent = charactersPanel
+
+local charUIList = Instance.new("UIListLayout")
+charUIList.Parent = charListFrame
+charUIList.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- TP buttons
+local tpOneCharButton = Instance.new("TextButton")
+tpOneCharButton.Size = UDim2.new(0, 120, 0, 35)
+tpOneCharButton.Position = UDim2.new(0, 5, 1, -35)
+tpOneCharButton.BackgroundColor3 = Color3.fromRGB(120, 50, 50)
+tpOneCharButton.TextColor3 = Color3.new(1, 1, 1)
+tpOneCharButton.Text = "TP One: OFF"
+tpOneCharButton.Font = Enum.Font.SourceSansBold
+tpOneCharButton.TextSize = 16
+tpOneCharButton.Parent = charactersPanel
+
+local tpAllCharButton = Instance.new("TextButton")
+tpAllCharButton.Size = UDim2.new(0, 120, 0, 35)
+tpAllCharButton.Position = UDim2.new(0, 140, 1, -35)
+tpAllCharButton.BackgroundColor3 = Color3.fromRGB(120, 50, 50)
+tpAllCharButton.TextColor3 = Color3.new(1, 1, 1)
+tpAllCharButton.Text = "TP All: OFF"
+tpAllCharButton.Font = Enum.Font.SourceSansBold
+tpAllCharButton.TextSize = 16
+tpAllCharButton.Parent = charactersPanel
+
+-- TP To button
+local tpToCharButton = Instance.new("TextButton")
+tpToCharButton.Size = UDim2.new(0,120,0,35)
+tpToCharButton.Position = UDim2.new(0,275,1,-35)
+tpToCharButton.BackgroundColor3 = Color3.fromRGB(120,50,50)
+tpToCharButton.TextColor3 = Color3.new(1,1,1)
+tpToCharButton.Text = "TP To"
+tpToCharButton.Font = Enum.Font.SourceSansBold
+tpToCharButton.TextSize = 16
+tpToCharButton.Parent = charactersPanel
+
+
+-- Variables
+local charactersFolder = workspace:FindFirstChild("Characters")
+local targetCharacterName = nil
+local tpOneActive = false
+local tpAllActive = false
+
+-- Character groups with colors & order
+local charGroups = {
+    Lost = {keywords={"lost"}, color=Color3.fromRGB(0,170,255), order=1},
+    Body = {keywords={"body"}, color=Color3.fromRGB(255,60,60), order=2},
+}
+
+local function getCharacterGroup(name)
+    local lname = name:lower()
+    for groupName, data in pairs(charGroups) do
+        for _, kw in ipairs(data.keywords) do
+            if lname:find(kw) then
+                return groupName, data.color, data.order
+            end
+        end
+    end
+    return "Other", Color3.fromRGB(180,180,180), 99
+end
+
+-- Update character list (collection style)
+local function updateCharList()
+    for _, c in pairs(charListFrame:GetChildren()) do
+        if c:IsA("TextButton") or c:IsA("TextLabel") then
+            c:Destroy()
+        end
+    end
+
+    if not charactersFolder then return end
+    local playerPos = hrp.Position
+    local order = 1
+    local itemsGrouped = {}
+
+    for _, model in pairs(charactersFolder:GetChildren()) do
+        if model:IsA("Model") and model:FindFirstChild("HumanoidRootPart") then
+            if model.Name:lower():find(charSearchBox.Text:lower()) then
+                local groupName, color, groupOrder = getCharacterGroup(model.Name)
+                itemsGrouped[model.Name] = itemsGrouped[model.Name] or {models={}, group=groupName, color=color, groupOrder=groupOrder}
+                table.insert(itemsGrouped[model.Name].models, model)
+            end
+        end
+    end
+
+    local sortedItems = {}
+    for name, data in pairs(itemsGrouped) do
+        table.insert(sortedItems, {name=name, data=data})
+    end
+    table.sort(sortedItems, function(a,b)
+        if a.data.groupOrder == b.data.groupOrder then
+            return a.name:lower() < b.name:lower()
+        else
+            return a.data.groupOrder < b.data.groupOrder
+        end
+    end)
+
+    local currentGroup = nil
+    for _, entry in ipairs(sortedItems) do
+        local name = entry.name
+        local data = entry.data
+
+        if data.group ~= currentGroup then
+            local header = Instance.new("TextLabel")
+            header.Size = UDim2.new(1, -10, 0, 20)
+            header.BackgroundTransparency = 1
+            header.TextColor3 = data.color
+            header.Font = Enum.Font.SourceSansBold
+            header.TextSize = 16
+            header.Text = "== "..data.group.." =="
+            header.LayoutOrder = order
+            header.Parent = charListFrame
+            order += 1
+            currentGroup = data.group
+        end
+
+        local closest = math.huge
+        for _, m in ipairs(data.models) do
+            local d = (m.HumanoidRootPart.Position - playerPos).Magnitude
+            if d < closest then closest = d end
+        end
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -10, 0, 30)
+        btn.BackgroundColor3 = data.color
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Font = Enum.Font.SourceSans
+        btn.TextSize = 16
+        btn.Text = string.format("%s (x%d) - %.1f studs", name, #data.models, closest)
+        btn.LayoutOrder = order
+        btn.Parent = charListFrame
+        order += 1
+
+        btn.MouseButton1Click:Connect(function()
+            targetCharacterName = name
+            statusLabel.Text = "Selected: "..name
+        end)
+    end
+
+    charListFrame.CanvasSize = UDim2.new(0,0,0,charUIList.AbsoluteContentSize.Y)
+end
+
+-- Refresh on button / search change
+refreshCharButton.MouseButton1Click:Connect(updateCharList)
+charSearchBox:GetPropertyChangedSignal("Text"):Connect(updateCharList)
+
+-- TP To functionality
+tpToCharButton.MouseButton1Click:Connect(function()
+    if not targetCharacterName or not charactersFolder then
+        statusLabel.Text = "Status: No character selected"
+        return
+    end
+    local targetModel = charactersFolder:FindFirstChild(targetCharacterName)
+    if targetModel and targetModel:FindFirstChild("HumanoidRootPart") then
+        local tpDistance = tonumber(tpDistanceBox.Text) or 3
+        local lookPos = targetModel.HumanoidRootPart.Position
+        hrp.CFrame = CFrame.new(lookPos + Vector3.new(0,tpDistance,0))
+        statusLabel.Text = "Status: Teleported to "..targetCharacterName
+    else
+        statusLabel.Text = "Status: Character not found"
+    end
+end)
+
+-- TP One / TP All toggle buttons
+tpOneCharButton.MouseButton1Click:Connect(function()
+    tpOneActive = not tpOneActive
+    tpOneCharButton.Text = "TP One: " .. (tpOneActive and "ON" or "OFF")
+    tpOneCharButton.BackgroundColor3 = tpOneActive and Color3.fromRGB(50,120,50) or Color3.fromRGB(120,50,50)
+    statusLabel.Text = tpOneActive and "Status: TP One Active" or "Status: TP One Off"
+    if tpOneActive and tpAllActive then
+        tpAllActive = false
+        tpAllCharButton.Text = "TP All: OFF"
+        tpAllCharButton.BackgroundColor3 = Color3.fromRGB(120,50,50)
+    end
+end)
+
+tpAllCharButton.MouseButton1Click:Connect(function()
+    tpAllActive = not tpAllActive
+    tpAllCharButton.Text = "TP All: " .. (tpAllActive and "ON" or "OFF")
+    tpAllCharButton.BackgroundColor3 = tpAllActive and Color3.fromRGB(50,120,50) or Color3.fromRGB(120,50,50)
+    statusLabel.Text = tpAllActive and "Status: TP All Active" or "Status: TP All Off"
+    if tpAllActive and tpOneActive then
+        tpOneActive = false
+        tpOneCharButton.Text = "TP One: OFF"
+        tpOneCharButton.BackgroundColor3 = Color3.fromRGB(120,50,50)
+    end
+end)
+
+-- Heartbeat loop to move characters
+RunService.Heartbeat:Connect(function()
+    if not targetCharacterName or not charactersFolder then return end
+    local tpDistance = tonumber(tpDistanceBox.Text) or 3
+    local cam = workspace.CurrentCamera
+    local lookPos = cam.CFrame.Position + cam.CFrame.LookVector * tpDistance
+
+local function tpModel(model)
+    if model.Name:lower():find("body") then
+        -- existing spacing logic for @Body@ models
+        local parts = {}
+        local head
+        for _, part in pairs(model:GetDescendants()) do
+            if part:IsA("BasePart") then
+                table.insert(parts, part)
+                if part.Name:lower() == "head" then head = part end
+            end
+        end
+        if #parts > 0 then
+            local headIndex = head and table.find(parts, head) or math.floor(#parts/2)+1
+            local spacing = 3
+            local startX = -(headIndex-1)*spacing
+            for i, part in ipairs(parts) do
+                part.CFrame = CFrame.new(lookPos + Vector3.new(startX + (i-1)*spacing,0,0))
+            end
+        end
+    else
+        -- For normal models: move and rotate to face player
+        local primary = model.PrimaryPart or model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head", true)
+        if primary and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            -- Target position in front of player
+            local targetPos = lookPos
+
+            -- Player position to face, same Y so upright
+            local facePos = Vector3.new(player.Character.HumanoidRootPart.Position.X,
+                                        primary.Position.Y,
+                                        player.Character.HumanoidRootPart.Position.Z)
+
+            -- Move model to targetPos and face player
+            model:SetPrimaryPartCFrame(CFrame.lookAt(targetPos, facePos))
+        end
+    end
+end
+
+
+    if tpOneActive then
+        local nearest
+        local shortest = math.huge
+        for _, model in pairs(charactersFolder:GetChildren()) do
+            if model:IsA("Model") and model.Name == targetCharacterName then
+                local ref = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head", true)
+                if ref then
+                    local dist = (ref.Position - hrp.Position).Magnitude
+                    if dist < shortest then
+                        nearest = model
+                        shortest = dist
+                    end
+                end
+            end
+        end
+        if nearest then tpModel(nearest) end
+    end
+
+    if tpAllActive then
+        for _, model in pairs(charactersFolder:GetChildren()) do
+            if model:IsA("Model") and model.Name == targetCharacterName then
+                tpModel(model)
+            end
+        end
+    end
+end)
+
+-- Auto-refresh while tab is visible (every 2 seconds)
+spawn(function()
+    while true do
+        wait(1)
+        if charactersPanel.Visible then
+            pcall(updateCharList)
+        end
+    end
+end)
+
+-- Initial update
+updateCharList()
