@@ -1,0 +1,212 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local DamageEvent = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("ToolDamageObject")
+
+
+local KillAuraEnabled = true
+local KillAuraRadius = 80
+local AttackDelay = 0.15
+
+
+local validWeapons = {
+	"Vampire Scythe",
+	"Morningstar",
+	"Katana",
+	"Spear",
+	"Strong Axe",
+	"Good Axe",
+	"Old Axe"
+}
+
+
+local validNames = { "bunny", "wolf" , "bear", "frog","fox", "crab", "scorpion", "alien", "mammoth", "hele", "cultist"}
+
+-------------------------------------------------------------------------------------
+-- Get currently equipped VALID weapon
+-------------------------------------------------------------------------------------
+local function getEquippedWeapon()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+
+    local equippedName = char:GetAttribute("Equipped")
+    if not equippedName then return nil end
+
+    -- Check if equipped weapon is in allowed list
+    local allowed = false
+    for _, wname in ipairs(validWeapons) do
+        if equippedName == wname then
+            allowed = true
+            break
+        end
+    end
+
+    if not allowed then
+        return nil
+    end
+
+    -- obtain weapon instance from inventory
+    local inv = LocalPlayer:FindFirstChild("Inventory")
+    if not inv then return nil end
+
+    return inv:FindFirstChild(equippedName)
+end
+
+-------------------------------------------------------------------------------------
+local function getWeaponDamage(weapon)
+    if not weapon then return 0 end
+
+    return
+        weapon:GetAttribute("WeaponDamage") or
+		10
+end
+
+-------------------------------------------------------------------------------------
+local function DamageTarget(target)
+   
+	local weapon = getEquippedWeapon()
+    
+	if not weapon then return end
+    if not target or not target.Parent then return end
+
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local troot = target:FindFirstChild("HumanoidRootPart")
+    if not troot then return end
+
+    -- Distance check
+    local dist = (troot.Position - hrp.Position).Magnitude
+    if dist > KillAuraRadius then return end
+
+    -- Health check
+    local humanoid = target:FindFirstChildOfClass("Humanoid")
+    if humanoid and humanoid.Health <= 0 then return end
+
+    local damage = getWeaponDamage(weapon)
+
+    pcall(function()
+        DamageEvent:InvokeServer(target, weapon, damage, troot.CFrame)
+    end)
+
+    print(string.format("⚔ Hit %s (%.1f studs)", target.Name, dist))
+end
+
+-------------------------------------------------------------------------------------
+-- Main loop
+-------------------------------------------------------------------------------------
+task.spawn(function()
+    while true do
+
+ 
+	
+        if KillAuraEnabled then
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+
+            if root then
+                local folder = Workspace:FindFirstChild("Characters")
+
+                if folder then
+                    for _, target in ipairs(folder:GetChildren()) do
+                        if
+                            target:IsA("Model")
+                            and target ~= char
+                            and target:FindFirstChild("HumanoidRootPart")
+                        then
+                            local lname = target.Name:lower()
+
+                            -- name filtering
+                            local valid = false
+                            for _, nm in ipairs(validNames) do
+                                if lname:find(nm) then
+                                    valid = true
+                                    break
+                                end
+                            end
+
+                            if valid then
+                                DamageTarget(target)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        task.wait(AttackDelay)
+    end
+end)
+
+----------------------------------------------------------------------
+-- Draggable Toggle GUI
+----------------------------------------------------------------------
+
+
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Create GUI container
+local gui = Instance.new("ScreenGui")
+gui.Name = "KillAuraToggleGUI"
+gui.ResetOnSpawn = false
+gui.Parent = PlayerGui
+
+-- Create Toggle Button
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0, 40, 0, 40)
+toggleBtn.Position = UDim2.new(0.5, -20, 0.25, -20)
+toggleBtn.BackgroundTransparency = 1
+toggleBtn.Text = "⚔"  -- starts ON
+toggleBtn.TextScaled = true
+toggleBtn.Font = Enum.Font.SourceSansBold
+toggleBtn.Parent = gui
+
+-- Make draggable
+local dragging = false
+local dragStart, startPos
+
+toggleBtn.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = toggleBtn.Position
+	end
+end)
+
+toggleBtn.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+	end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		toggleBtn.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+----------------------------------------------------------------------
+-- Toggle behavior
+----------------------------------------------------------------------
+toggleBtn.MouseButton1Click:Connect(function()
+	KillAuraEnabled = not KillAuraEnabled
+
+	if KillAuraEnabled then
+		toggleBtn.Text = "⚔ On"
+	else
+		toggleBtn.Text = "⚔ Off"
+	end
+end)
+
+print("[KillAura] Running (with weapon whitelist)")
