@@ -1,0 +1,104 @@
+----------------------------------------------------------------------
+-- Halo Auto Trigger (DamagePlayer Remote Trigger in Toggle Loop)
+----------------------------------------------------------------------
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local RS = game:GetService("ReplicatedStorage")
+
+local DamagePlayerEvent = RS
+	:WaitForChild("RemoteEvents")
+	:WaitForChild("DamagePlayer")
+
+----------------------------------------------------------------------
+-- GUI Button
+----------------------------------------------------------------------
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "AutoHaloGUI"
+gui.ResetOnSpawn = false
+gui.Parent = PlayerGui
+
+local haloBtn = Instance.new("TextButton")
+haloBtn.Size = UDim2.new(0, 40, 0, 40)
+haloBtn.Position = UDim2.new(0.5, -20, 0.45, -20)
+haloBtn.BackgroundTransparency = 1
+haloBtn.Text = "😇"
+haloBtn.TextScaled = true
+haloBtn.Font = Enum.Font.SourceSansBold
+haloBtn.Parent = gui
+
+----------------------------------------------------------------------
+-- Dragging Support
+----------------------------------------------------------------------
+
+local dragging = false
+local dragStart, startPos
+local UserInputService = game:GetService("UserInputService")
+
+haloBtn.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = haloBtn.Position
+	end
+end)
+
+haloBtn.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		haloBtn.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+----------------------------------------------------------------------
+-- AUTO LOOP
+----------------------------------------------------------------------
+
+local HaloActive = false   -- toggle state
+local HEALTH_THRESHOLD = 50
+local LOOP_DELAY = 0.35    -- how often to recheck and fire
+
+local function HaloLoop()
+	while HaloActive do
+		
+		local char = LocalPlayer.Character
+		local hum = char and char:FindFirstChild("Humanoid")
+
+		if hum and hum.Health > 0 then
+			if hum.Health <= HEALTH_THRESHOLD then
+				-- Fire the same thing your button used to do
+				pcall(function()
+					DamagePlayerEvent:FireServer(-math.huge)
+				end)
+			end
+		end
+		
+		task.wait(LOOP_DELAY)
+	end
+end
+
+----------------------------------------------------------------------
+-- Button Click → Toggle ON/OFF
+----------------------------------------------------------------------
+
+haloBtn.MouseButton1Click:Connect(function()
+	HaloActive = not HaloActive
+	haloBtn.Text = HaloActive and "😇 ON" or "😇 OFF"
+
+	if HaloActive then
+		task.spawn(HaloLoop)
+	end
+end)
