@@ -148,7 +148,7 @@ local function MoveItemsLoop()
                 end
 
                 dragMoveStop(item, TARGET_POS)
-                task.wait(0.1)
+                task.wait(0.2)
             end
         end
 
