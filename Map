@@ -149,7 +149,7 @@ local function startScanning()
 	startBtn.Text = "Running..."
 	startBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
 
-	local step = tonumber(stepBox.Text) or 5
+	local step = tonumber(stepBox.Text) or 30
 	local height = tonumber(heightBox.Text) or 10
 	local radius = 1368
 	local angleStep = math.rad(5)
