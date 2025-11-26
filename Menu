@@ -533,7 +533,7 @@ do
     local states = {
         WalkSpeed = 16,
         InfiniteJump = false,
-        Fly = false,
+        Fly = true,
         NoClip = false,
         Ghost = false
     }
