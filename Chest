@@ -1,0 +1,117 @@
+-- ===============================
+-- Run-Once Chest Fixer (FixProximity)
+-- ===============================
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Create GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "FixProximityGUI"
+gui.ResetOnSpawn = false
+gui.Parent = PlayerGui
+
+-- Run-Once Button
+local chestBtn = Instance.new("TextButton")
+chestBtn.Size = UDim2.new(0, 40, 0, 40)
+chestBtn.Position = UDim2.new(0.6, -20, 0.38, -20)
+chestBtn.BackgroundTransparency = 1
+chestBtn.Text = "🧰" -- chest/tool symbol
+chestBtn.TextScaled = true
+chestBtn.Font = Enum.Font.SourceSansBold
+chestBtn.Parent = gui
+
+-- Dragging
+local dragging = false
+local dragStart, startPos
+
+chestBtn.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = chestBtn.Position
+	end
+end)
+
+chestBtn.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+	end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		chestBtn.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+-- ===============================
+-- FixProximity Function
+-- ===============================
+local function trySetProperty(inst, propName, value)
+	local ok, _ = pcall(function()
+		if inst[propName] ~= nil then
+			inst[propName] = value
+		end
+	end)
+	if ok and inst[propName] == value then return true end
+
+	local child = inst:FindFirstChild(propName) or inst:FindFirstChild(propName:lower())
+	if child and child:IsA("ValueBase") then
+		local ok2, _ = pcall(function() child.Value = value end)
+		return ok2
+	end
+
+	return false
+end
+
+local function FixProximityOnce()
+	local Items = workspace:FindFirstChild("Items")
+	if not Items then
+		warn("[FixProximity] workspace.Items not found")
+		return
+	end
+
+	local changedCount = 0
+
+	for _, model in ipairs(Items:GetChildren()) do
+		if model:IsA("Model") then
+			local main = model:FindFirstChild("Main")
+			if main then
+				local attach = main:FindFirstChild("ProximityAttachment")
+				if attach then
+					local interact = attach:FindFirstChild("ProximityInteraction")
+					if interact and interact:IsA("Instance") then
+						local changed = false
+
+						-- Set MaxActivationDistance for chests
+						if interact:IsA("ProximityPrompt") then
+							interact.MaxActivationDistance = math.huge -- distance in studs
+							changed = true
+						end
+
+						-- Remove LOS requirement & reduce hold duration
+						if trySetProperty(interact, "RequiresLineOfSight", false) then changed = true end
+						if trySetProperty(interact, "HoldDuration", 0) or trySetProperty(interact, "HoldTime", 0) then changed = true end
+
+						if changed then changedCount = changedCount + 1 end
+					end
+				end
+			end
+		end
+	end
+
+	print(string.format("[FixProximity] Finished. Modified %d proximity interactions.", changedCount))
+end
+
+-- ===============================
+-- Run once on button click
+-- ===============================
+chestBtn.MouseButton1Click:Connect(FixProximityOnce)
