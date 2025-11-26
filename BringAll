@@ -120,7 +120,7 @@ local Exact1 = {"Coal","Fuel Canister","Oil Barrel","Morsel","Steak","Ribs"}
 local Contains2 = {"bolt","broken","broken","metal","log","gem","sheet","washing","engine","radio","tyre"}
 local Exact3 = {
     -- Weapons
-    "fire sword",
+    "infenal sword",
     "ice sword",
     "revolver",
     "revolver ammo",
@@ -134,6 +134,10 @@ local Exact3 = {
     "hammer",
     "chainsaw",
     "good axe",
+
+ "iron body",
+ "thorn body",
+
 
     -- Sacks
     "giant sack",
