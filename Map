@@ -1,9 +1,8 @@
--- // Map Scanner GUI (LocalScript)
--- Place this in StarterPlayerScripts or StarterGui
+-- Map Scanner GUI (LocalScript)
+-- Place in StarterPlayerScripts or StarterGui
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
@@ -45,7 +44,7 @@ stepLabel.Parent = frame
 local stepBox = Instance.new("TextBox")
 stepBox.Position = UDim2.new(0, 150, 0, 40)
 stepBox.Size = UDim2.new(0, 80, 0, 25)
-stepBox.Text = "5"
+stepBox.Text = "40"
 stepBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 stepBox.TextColor3 = Color3.new(1, 1, 1)
 stepBox.ClearTextOnFocus = false
@@ -63,60 +62,29 @@ heightLabel.Parent = frame
 local heightBox = Instance.new("TextBox")
 heightBox.Position = UDim2.new(0, 150, 0, 70)
 heightBox.Size = UDim2.new(0, 80, 0, 25)
-heightBox.Text = "10"
+heightBox.Text = "20"
 heightBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 heightBox.TextColor3 = Color3.new(1, 1, 1)
 heightBox.ClearTextOnFocus = false
 heightBox.Parent = frame
 
--- Heartbeat slider
+-- Heartbeat interval input
 local tickLabel = Instance.new("TextLabel")
-tickLabel.Text = "TP every 1 heartbeat(s)"
+tickLabel.Text = "TP every heartbeat(s):"
 tickLabel.Position = UDim2.new(0, 10, 0, 100)
-tickLabel.Size = UDim2.new(1, -20, 0, 20)
+tickLabel.Size = UDim2.new(0, 130, 0, 25)
 tickLabel.BackgroundTransparency = 1
 tickLabel.TextColor3 = Color3.new(1, 1, 1)
-tickLabel.Font = Enum.Font.SourceSans
-tickLabel.TextSize = 14
 tickLabel.Parent = frame
 
-local sliderBg = Instance.new("Frame")
-sliderBg.Position = UDim2.new(0, 10, 0, 125)
-sliderBg.Size = UDim2.new(1, -20, 0, 6)
-sliderBg.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-sliderBg.BorderSizePixel = 0
-sliderBg.Parent = frame
-
-local sliderFill = Instance.new("Frame")
-sliderFill.Size = UDim2.new(1/60, 0, 1, 0) -- initial 1/60
-sliderFill.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
-sliderFill.BorderSizePixel = 0
-sliderFill.Parent = sliderBg
-
-local tickSpeed = 6
-local heartbeatCounter = 0
-local dragging = false
-
-sliderBg.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = true
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = false
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local relX = math.clamp((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X, 0, 1)
-		sliderFill.Size = UDim2.new(relX, 0, 1, 0)
-		tickSpeed = math.max(1, math.round(relX * 60))
-		tickLabel.Text = "TP every " .. tickSpeed .. " heartbeat(s)"
-	end
-end)
+local tickBox = Instance.new("TextBox")
+tickBox.Position = UDim2.new(0, 150, 0, 100)
+tickBox.Size = UDim2.new(0, 80, 0, 25)
+tickBox.Text = "6"
+tickBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+tickBox.TextColor3 = Color3.new(1, 1, 1)
+tickBox.ClearTextOnFocus = false
+tickBox.Parent = frame
 
 -- Buttons
 local startBtn = Instance.new("TextButton")
@@ -141,21 +109,24 @@ stopBtn.Parent = frame
 
 -- Scanning logic
 local scanning = true
+local loopRunning = false
 local connection
 
 local function startScanning()
-	if scanning then return end
+	if loopRunning then return end
+	loopRunning = true
 	scanning = true
 	startBtn.Text = "Running..."
 	startBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
 
-	local step = 40
-	local height = 20
-	local radius = 1368
-	local angleStep = math.rad(5)
-	local ring = radius
+	-- read GUI values
+	local step = tonumber(stepBox.Text) or 40
+	local height = tonumber(heightBox.Text) or 20
+	local tickSpeed = tonumber(tickBox.Text) or 6
+	local radiusMax = 1368
 	local angle = 0
-	heartbeatCounter = 0
+	local radius = step
+	local heartbeatCounter = 0
 
 	connection = RunService.Heartbeat:Connect(function()
 		if not scanning then return end
@@ -164,24 +135,23 @@ local function startScanning()
 		if heartbeatCounter >= tickSpeed then
 			heartbeatCounter = 0
 
-			-- Teleport once per tickSpeed heartbeats
-			local x = math.cos(angle) * ring
-			local z = math.sin(angle) * ring
-			local newPos = Vector3.new(x, height, z)
-			hrp.CFrame = CFrame.new(newPos)
+			-- teleport along spiral
+			local x = math.cos(angle) * radius
+			local z = math.sin(angle) * radius
+			hrp.CFrame = CFrame.new(Vector3.new(x, height, z))
 
+			local angleStep = math.rad(10)
 			angle += angleStep
-			if angle >= math.pi * 2 then
-				angle = 0
-				ring -= step
-				if ring <= 0 then
-					print("✅ Scan complete")
-					scanning = false
-					connection:Disconnect()
-					startBtn.Text = "▶ Start Scan"
-					startBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
-					return
-				end
+			radius += step * (angleStep / (2 * math.pi))
+
+			if radius >= radiusMax then
+				print("✅ Scan complete")
+				scanning = false
+				connection:Disconnect()
+				startBtn.Text = "▶ Start Scan"
+				startBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+				loopRunning = false
+				return
 			end
 		end
 	end)
@@ -193,9 +163,14 @@ local function stopScanning()
 		if connection then connection:Disconnect() end
 		startBtn.Text = "▶ Start Scan"
 		startBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+		loopRunning = false
 		print("🛑 Scan stopped manually")
 	end
 end
 
+-- Button events
 startBtn.MouseButton1Click:Connect(startScanning)
 stopBtn.MouseButton1Click:Connect(stopScanning)
+
+-- Start automatically on script load
+task.spawn(startScanning)
