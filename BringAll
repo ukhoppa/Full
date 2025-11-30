@@ -116,8 +116,8 @@ local POS_GROUP1 = Vector3.new(0, 20, 0)
 local POS_GROUP2 = Vector3.new(20, 10, -5)
 local POS_GROUP3 = Vector3.new(0, 10, 20)
 
-local Exact1 = {"Coal","Fuel Canister","Oil Barrel","Morsel","Steak","Ribs"}
-local Contains2 = {"bolt","broken","broken","metal","log","gem","sheet","washing","engine","radio","tyre"}
+local Exact1 = {"Coal","Fuel Canister","Oil Barrel","Morsel","Steak","Ribs","Log"}
+local Contains2 = {"bolt","broken","broken","metal","gem","sheet","washing","engine","radio","tyre"}
 local Exact3 = {
     -- Weapons
     "infenal sword",
@@ -161,6 +161,8 @@ local Exact3 = {
     "kunai",
     "medkit",
     "shard",
+"laser cannon",
+"alien body",
     "raygun"
 }
 
