@@ -125,7 +125,7 @@ local Moving = false
 
 local function MoveItemsLoop()
     local ORIGIN = Vector3.new(0,0,0)
-    local MIN_DISTANCE = 100
+    local MIN_DISTANCE = 20
 
     while Moving do
         for _, item in ipairs(ItemsFolder:GetChildren()) do
