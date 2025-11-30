@@ -140,7 +140,7 @@ stopBtn.TextSize = 14
 stopBtn.Parent = frame
 
 -- Scanning logic
-local scanning = false
+local scanning = true
 local connection
 
 local function startScanning()
