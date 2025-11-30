@@ -67,7 +67,7 @@ end)
 -- AUTO LOOP
 ----------------------------------------------------------------------
 
-local HaloActive = false   -- toggle state
+local HaloActive = true   -- toggle state
 local HEALTH_THRESHOLD = 199
 local LOOP_DELAY = 0.35    -- how often to recheck and fire
 
