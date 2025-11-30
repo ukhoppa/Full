@@ -24,7 +24,7 @@ local haloBtn = Instance.new("TextButton")
 haloBtn.Size = UDim2.new(0, 40, 0, 40)
 haloBtn.Position = UDim2.new(0.5, -20, 0.45, -20)
 haloBtn.BackgroundTransparency = 1
-haloBtn.Text = "😇"
+haloBtn.Text = "💀"
 haloBtn.TextScaled = true
 haloBtn.Font = Enum.Font.SourceSansBold
 haloBtn.Parent = gui
@@ -68,7 +68,7 @@ end)
 ----------------------------------------------------------------------
 
 local HaloActive = false   -- toggle state
-local HEALTH_THRESHOLD = 50
+local HEALTH_THRESHOLD = 199
 local LOOP_DELAY = 0.35    -- how often to recheck and fire
 
 local function HaloLoop()
@@ -96,7 +96,7 @@ end
 
 haloBtn.MouseButton1Click:Connect(function()
 	HaloActive = not HaloActive
-	haloBtn.Text = HaloActive and "😇 ON" or "😇 OFF"
+	haloBtn.Text = HaloActive and "😇 GOD" or "💀 HUMAN"
 
 	if HaloActive then
 		task.spawn(HaloLoop)
