@@ -93,7 +93,7 @@ sliderFill.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
 sliderFill.BorderSizePixel = 0
 sliderFill.Parent = sliderBg
 
-local tickSpeed = 1
+local tickSpeed = 6
 local heartbeatCounter = 0
 local dragging = false
 
@@ -149,8 +149,8 @@ local function startScanning()
 	startBtn.Text = "Running..."
 	startBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
 
-	local step = tonumber(stepBox.Text) or 30
-	local height = tonumber(heightBox.Text) or 10
+	local step = 40
+	local height = 20
 	local radius = 1368
 	local angleStep = math.rad(5)
 	local ring = radius
