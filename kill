@@ -22,7 +22,7 @@ local validWeapons = {
 }
 
 
-local validNames = { "bunny", "wolf" , "bear", "frog","fox", "crab", "scorpion", "alien", "mammoth", "hele", "cultist", "lost"}
+local validNames = {"turkey","kiwi", "bunny", "wolf" , "bear", "frog","fox", "crab", "scorpion", "alien", "mammoth", "hele", "cultist", "lost"}
 
 -------------------------------------------------------------------------------------
 -- Get currently equipped VALID weapon
