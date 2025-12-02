@@ -22,6 +22,10 @@ local TARGET_ITEMS = {
 	["Aplha Wolf Corpse"] = true,
 	["Coal"] = true,
 	["Fuel Canister"] = true,
+["Morsel"] = true,
+["Steak"] = true,
+["Stuffing"] = true,
+["Turkey Leg"] = true,
 	["Oil Barrel"] = true
 	
 	
