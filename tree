@@ -14,7 +14,7 @@ local DamageEvent = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild(
 
 local Enabled = true
 local AttackDelay = 0.15
-local MAX_DISTANCE = 100
+local MAX_DISTANCE = 80
 local SCAN_RADIUS = 80
 local ActiveTargets = {}
 
