@@ -16,6 +16,10 @@ local ItemsFolder = workspace:WaitForChild("Items")
 
 -- Items that get moved
 local TARGET_ITEMS = {
+	["Cultist"] = true,
+	["Crossbow Cultist"] = true,
+	["Bear Corpse"] = true,
+	["Aplha Wolf Corpse"] = true,
 	["Coal"] = true,
 	["Fuel Canister"] = true,
 	["Oil Barrel"] = true
