@@ -134,7 +134,7 @@ task.spawn(function()
 
                             if valid then
                                 DamageTarget(target)
-								 task.wait(AttackDelay)
+								 
                             end
                         end
                     end
@@ -142,7 +142,7 @@ task.spawn(function()
             end
         end
 
-        task.wait(0.6)
+      task.wait(AttackDelay)
     end
 end)
 
