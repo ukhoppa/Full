@@ -3,7 +3,7 @@
 -- Big Trees = Strong Axe only
 -- All IceBlocks = any axe
 -- Ores = Meteor + Obsidiron (3 hotspots only)
--- Only scan within SCAN_RADIUS → minimal lag
+
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,7 +15,7 @@ local DamageEvent = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild(
 local Enabled = true
 local AttackDelay = 0.15
 local MAX_DISTANCE = 80
-local SCAN_RADIUS = 80
+
 local ActiveTargets = {}
 
 ---------------------------------------------------
@@ -106,7 +106,7 @@ local function scanFolder(folder)
 		end
 
 		-- Skip objects outside radius
-		if objPos and (objPos - hrp.Position).Magnitude > SCAN_RADIUS then
+		if objPos and (objPos - hrp.Position).Magnitude > MAX_DISTANCE then
 			continue
 		end
 
